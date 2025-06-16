@@ -12,10 +12,10 @@ def process_trading_data(df):
     # Limpar nomes das colunas (remover espaços extras)
     df.columns = df.columns.str.strip()
     
-    # Procurar pela coluna de Data (pode ter nomes diferentes)
+    # Procurar pela coluna de Data (pode ser Abertura ou Fechamento)
     date_col = None
     for col in df.columns:
-        if 'Data' in col or 'data' in col:
+        if any(word in col for word in ['Abertura', 'Fechamento', 'Data', 'data']):
             date_col = col
             break
     
@@ -35,25 +35,26 @@ def process_trading_data(df):
     # Filtrar apenas linhas que têm data válida (não vazias)
     df = df[df[date_col].notna() & (df[date_col] != '')]
     
-    # Converter Data para datetime - tentar diferentes formatos
-    date_formats = ['%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y %H:%M:%S']
-    
-    for fmt in date_formats:
+    # Converter Data para datetime - extrair apenas a parte da data
+    def extract_date(date_str):
         try:
-            df['Data'] = pd.to_datetime(df[date_col], format=fmt, errors='coerce')
-            break
+            # Se for string, pegar apenas os primeiros 10 caracteres (DD/MM/YYYY)
+            if isinstance(date_str, str):
+                date_part = date_str.split(' ')[0]  # Pegar só a parte da data
+                return pd.to_datetime(date_part, format='%d/%m/%Y', errors='coerce')
+            else:
+                return pd.to_datetime(date_str, errors='coerce')
         except:
-            continue
+            return pd.NaT
     
-    # Se ainda não conseguiu converter, tentar inferir automaticamente
-    if df['Data'].isna().all():
-        df['Data'] = pd.to_datetime(df[date_col], errors='coerce', dayfirst=True)
+    df['Data'] = df[date_col].apply(extract_date)
     
     # Converter Total para numérico
     if df[total_col].dtype == 'object':
-        # Remover espaços, substituir vírgulas por pontos, remover caracteres não numéricos exceto - e .
+        # Remover espaços, substituir vírgulas por pontos
         df['Total'] = df[total_col].astype(str).str.strip()
         df['Total'] = df['Total'].str.replace(',', '.')
+        # Remover caracteres não numéricos exceto - e .
         df['Total'] = df['Total'].str.replace(r'[^\d\-\.]', '', regex=True)
         df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
     else:
@@ -239,40 +240,20 @@ def main():
     
     if uploaded_file is not None:
         try:
-            # Tentar diferentes encodings e métodos de leitura
+            # Tentar diferentes encodings
             encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
             df = None
             
             for encoding in encodings:
                 try:
                     uploaded_file.seek(0)  # Reset file pointer
-                    
-                    # Ler o arquivo linha por linha para identificar a estrutura
-                    content = uploaded_file.read().decode(encoding)
-                    lines = content.split('\n')
-                    
-                    # Procurar pela linha de cabeçalho (que contém os nomes das colunas)
-                    header_line_idx = None
-                    for i, line in enumerate(lines):
-                        if 'Subconta' in line and 'Data' in line and 'Total' in line:
-                            header_line_idx = i
-                            break
-                    
-                    if header_line_idx is not None:
-                        # Ler o CSV pulando as linhas até o cabeçalho
-                        uploaded_file.seek(0)
-                        df = pd.read_csv(uploaded_file, encoding=encoding, sep=';', 
-                                       skiprows=header_line_idx, on_bad_lines='skip')
-                        st.success(f"Arquivo carregado com encoding: {encoding}")
-                        break
-                    else:
-                        # Tentar ler normalmente se não encontrar o padrão esperado
-                        uploaded_file.seek(0)
-                        df = pd.read_csv(uploaded_file, encoding=encoding, sep=';', on_bad_lines='skip')
-                        st.success(f"Arquivo carregado com encoding: {encoding}")
-                        break
+                    # Pular as primeiras 4 linhas e usar a linha 5 como cabeçalho
+                    df = pd.read_csv(uploaded_file, encoding=encoding, sep=';', 
+                                   skiprows=4, on_bad_lines='skip')
+                    st.success(f"Arquivo carregado com encoding: {encoding}")
+                    break
                         
-                except (UnicodeDecodeError, pd.errors.ParserError):
+                except (UnicodeDecodeError, pd.errors.ParserError) as e:
                     continue
             
             if df is None:
