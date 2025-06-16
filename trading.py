@@ -29,10 +29,6 @@ st.set_page_config(
 # --- Inicialização de Session State ---
 def initialize_session_state():
     """Inicializa todos os valores do session state."""
-    if 'custo_wdo' not in st.session_state:
-        st.session_state.custo_wdo = 0.99
-    if 'custo_win' not in st.session_state:
-        st.session_state.custo_win = 0.39
     if 'filtered_data' not in st.session_state:
         st.session_state.filtered_data = None
 
@@ -274,29 +270,6 @@ def process_data_for_dashboard(uploaded_file, filename=None):
         
         df.columns = df.columns.str.strip()
         
-        # Detectar tipo de ativo e custo
-        custo_por_contrato = st.session_state.custo_wdo
-        asset_detected = "WDO (padrão)"
-        
-        for col in df.columns:
-            if any(word in col.lower() for word in ['ativo', 'asset', 'symbol']):
-                if not df[col].empty:
-                    first_asset = str(df[col].dropna().iloc[0]).upper().strip()
-                    
-                    if len(first_asset) >= 2:
-                        first_two_chars = first_asset[:2]
-                        
-                        if first_two_chars == 'WD':
-                            custo_por_contrato = st.session_state.custo_wdo
-                            asset_detected = f"WD* ({first_asset})"
-                        elif first_two_chars == 'WI':
-                            custo_por_contrato = st.session_state.custo_win
-                            asset_detected = f"WI* ({first_asset})"
-                        else:
-                            custo_por_contrato = st.session_state.custo_wdo
-                            asset_detected = f"Outros ({first_asset})"
-                    break
-        
         # Procurar coluna Total
         total_col = None
         for col in df.columns:
@@ -306,16 +279,6 @@ def process_data_for_dashboard(uploaded_file, filename=None):
         
         if total_col is None:
             return pd.DataFrame(), "Coluna Total não encontrada"
-        
-        # Procurar colunas de quantidade
-        qtd_compra_col = None
-        qtd_venda_col = None
-        
-        for col in df.columns:
-            if any(word in col.lower() for word in ['qtd compra', 'quantidade compra', 'qtd_compra']):
-                qtd_compra_col = col
-            elif any(word in col.lower() for word in ['qtd venda', 'quantidade venda', 'qtd_venda']):
-                qtd_venda_col = col
         
         # Filtrar linhas válidas
         df = df[df[total_col].notna() & (df[total_col] != '') & (df[total_col] != 'nan')]
@@ -337,38 +300,7 @@ def process_data_for_dashboard(uploaded_file, filename=None):
             except:
                 return 0
         
-        def convert_quantity(value):
-            try:
-                if pd.isna(value) or value == '' or str(value).lower() == 'nan':
-                    return 0
-                return int(float(str(value).strip()))
-            except:
-                return 0
-        
         df['Total'] = df[total_col].apply(convert_total)
-        
-        # Calcular custos
-        if qtd_compra_col and qtd_venda_col:
-            df['Qtd_Compra'] = df[qtd_compra_col].apply(convert_quantity)
-            df['Qtd_Venda'] = df[qtd_venda_col].apply(convert_quantity)
-            df['Total_Contratos'] = df['Qtd_Compra'] + df['Qtd_Venda']
-        elif qtd_compra_col:
-            df['Qtd_Compra'] = df[qtd_compra_col].apply(convert_quantity)
-            df['Total_Contratos'] = df['Qtd_Compra'] * 2
-        elif qtd_venda_col:
-            df['Qtd_Venda'] = df[qtd_venda_col].apply(convert_quantity)
-            df['Total_Contratos'] = df['Qtd_Venda'] * 2
-        else:
-            df['Total_Contratos'] = 2  # Assumir 2 contratos por operação
-        
-        df['Custo_Operacao'] = df['Total_Contratos'] * custo_por_contrato
-        df['Total_Bruto'] = df['Total']
-        df['Total'] = df['Total_Bruto'] - df['Custo_Operacao']
-        
-        df = df[df['Total_Contratos'] > 0]
-        
-        if df.empty:
-            return pd.DataFrame(), "Nenhuma operação válida"
         
         # Criar data automaticamente
         data_arquivo = None
@@ -419,13 +351,10 @@ def process_data_for_dashboard(uploaded_file, filename=None):
         
         # Agrupar por data
         daily_data = df.groupby('Data').agg({
-            'Total_Bruto': 'sum',
-            'Custo_Operacao': 'sum',
-            'Total': 'sum',
-            'Total_Contratos': 'sum'
+            'Total': 'sum'
         }).reset_index()
         
-        return daily_data[['Data', 'Total']], asset_detected
+        return daily_data, "Dados processados"
         
     except Exception as e:
         return pd.DataFrame(), f"Erro: {str(e)}"
@@ -920,30 +849,9 @@ def main():
     
     st.title("📈 Trading Activity Dashboard")
     
-    # SIDEBAR COM FILTROS
+    # SIDEBAR COM FILTROS (SEM CUSTOS)
     with st.sidebar:
         st.title("🎛️ Controles")
-        
-        st.markdown("---")
-        st.subheader("💰 Configuração de Custos")
-        
-        st.session_state.custo_wdo = st.number_input(
-            "Custo WDO (R$)",
-            min_value=0.01,
-            max_value=10.00,
-            value=st.session_state.custo_wdo,
-            step=0.01,
-            format="%.2f"
-        )
-        
-        st.session_state.custo_win = st.number_input(
-            "Custo WIN (R$)",
-            min_value=0.01,
-            max_value=10.00,
-            value=st.session_state.custo_win,
-            step=0.01,
-            format="%.2f"
-        )
         
         st.markdown("---")
         st.subheader("📅 Filtros de Data")
@@ -1012,7 +920,7 @@ def main():
             processed_df, asset_info = process_data_for_dashboard(uploaded_file, filename)
             
             if not processed_df.empty:
-                st.success(f"✅ Dados processados - {asset_info}")
+                st.success(f"✅ {asset_info}")
                 
                 # PASSO 3: Adicionar à aba dados
                 st.markdown("### 📊 PASSO 3: Adicionando à aba 'dados'")
