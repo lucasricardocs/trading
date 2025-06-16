@@ -12,16 +12,16 @@ st.set_page_config(
     layout="wide"
 )
 
-# Função para carregar dados do Google Sheets
+# Função para carregar dados da aba "dados" do Google Sheets
 @st.cache_data(ttl=60)
 def load_data_from_sheets():
-    """Carrega dados da planilha Google Sheets usando st.connection."""
+    """Carrega dados da aba 'dados' da planilha Google Sheets."""
     try:
         # Criar conexão com Google Sheets
         conn = st.connection("gsheets", type=GSheetsConnection)
         
-        # Ler dados da planilha
-        df = conn.read(worksheet="Sheet1", usecols=[0, 1])
+        # Ler dados da aba "dados"
+        df = conn.read(worksheet="dados", usecols=[0, 1], ttl=60)
         
         if df.empty:
             return None
@@ -40,63 +40,158 @@ def load_data_from_sheets():
         st.error(f'Erro ao carregar dados do Google Sheets: {str(e)}')
         return None
 
-# Função para enviar dados para Google Sheets
-def append_data_to_sheets(df):
-    """Envia dados processados para a planilha Google Sheets."""
+# Função para adicionar dados à aba "dados" (alimentação diária)
+def append_data_to_sheets_robust(df):
+    """Versão robusta que adiciona dados diretamente na primeira linha vazia."""
     try:
-        # Criar conexão com Google Sheets
-        conn = st.connection("gsheets", type=GSheetsConnection)
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+        
+        # Carrega as credenciais
+        credentials = Credentials.from_service_account_info(
+            st.secrets["connections"]["gsheets"],
+            scopes=['https://www.googleapis.com/auth/spreadsheets']
+        )
+        
+        # Constrói o serviço
+        service = build('sheets', 'v4', credentials=credentials)
+        
+        # ID da planilha
+        spreadsheet_id = "16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM"
         
         # Preparar dados para envio
-        df_to_send = df.copy()
-        df_to_send['Data'] = df_to_send['Data'].dt.strftime('%d/%m/%Y')
+        df_to_append = df.copy()
+        df_to_append['Data'] = df_to_append['Data'].dt.strftime('%d/%m/%Y')
         
-        # Atualizar planilha (substitui dados existentes)
-        conn.update(worksheet="Sheet1", data=df_to_send)
+        # Converter para lista de listas
+        values_to_append = []
+        for _, row in df_to_append.iterrows():
+            values_to_append.append([row['Data'], float(row['Total'])])
         
+        # Verificar dados existentes para evitar duplicatas
+        try:
+            result = service.spreadsheets().values().get(
+                spreadsheetId=spreadsheet_id,
+                range='dados!A:B'
+            ).execute()
+            
+            existing_values = result.get('values', [])
+            if len(existing_values) > 1:  # Se há mais que só o cabeçalho
+                existing_dates = set()
+                for row in existing_values[1:]:  # Pular cabeçalho
+                    if len(row) >= 1:
+                        try:
+                            date_obj = pd.to_datetime(row[0], format='%d/%m/%Y')
+                            existing_dates.add(date_obj.date())
+                        except:
+                            continue
+                
+                # Filtrar apenas datas que não existem
+                filtered_values = []
+                for value_row in values_to_append:
+                    try:
+                        date_obj = pd.to_datetime(value_row[0], format='%d/%m/%Y')
+                        if date_obj.date() not in existing_dates:
+                            filtered_values.append(value_row)
+                    except:
+                        continue
+                
+                values_to_append = filtered_values
+                
+                if not values_to_append:
+                    st.warning("⚠️ Todos os dados já existem na planilha")
+                    return True
+                    
+        except Exception as e:
+            st.warning(f"⚠️ Não foi possível verificar dados existentes: {e}")
+        
+        if not values_to_append:
+            st.warning("⚠️ Nenhum dado novo para adicionar")
+            return True
+        
+        # Adicionar dados na primeira linha vazia
+        body = {
+            'values': values_to_append
+        }
+        
+        result = service.spreadsheets().values().append(
+            spreadsheetId=spreadsheet_id,
+            range='dados!A:B',
+            valueInputOption='RAW',
+            insertDataOption='INSERT_ROWS',
+            body=body
+        ).execute()
+        
+        st.success(f"✅ {len(values_to_append)} novos registros adicionados à aba 'dados'")
         return True
         
     except Exception as e:
-        st.error(f'Erro ao enviar dados para Google Sheets: {str(e)}')
+        st.error(f'❌ Erro ao adicionar dados ao Google Sheets: {str(e)}')
         return False
 
 def process_trading_data(df):
-    """Processa os dados de trading do CSV."""
+    """Processa os dados de trading do CSV - cabeçalho na linha 5, dados a partir da linha 6."""
     try:
         df = df.copy()
+        
+        # Verificar se o DataFrame não está vazio
+        if df.empty:
+            st.error("❌ Arquivo CSV vazio")
+            return pd.DataFrame()
+        
+        # Limpar nomes das colunas (remover espaços extras)
         df.columns = df.columns.str.strip()
+        
+        # Debug: mostrar as colunas encontradas
+        st.write("🔍 Colunas encontradas no CSV:", list(df.columns))
         
         # Procurar pela coluna de Data
         date_col = None
         for col in df.columns:
-            if any(word in col for word in ['Abertura', 'Fechamento', 'Data', 'data']):
+            if any(word in col.lower() for word in ['abertura', 'fechamento', 'data', 'date']):
                 date_col = col
                 break
         
         if date_col is None:
-            st.error("❌ Coluna de data não encontrada")
+            st.error(f"❌ Coluna de data não encontrada. Colunas disponíveis: {list(df.columns)}")
             return pd.DataFrame()
         
         # Procurar pela coluna Total
         total_col = None
         for col in df.columns:
-            if 'Total' in col or 'total' in col:
+            if any(word in col.lower() for word in ['total', 'resultado', 'valor']):
                 total_col = col
                 break
         
         if total_col is None:
-            st.error("❌ Coluna de total não encontrada")
+            st.error(f"❌ Coluna de total não encontrada. Colunas disponíveis: {list(df.columns)}")
             return pd.DataFrame()
         
-        # Filtrar apenas linhas que têm data válida
-        df = df[df[date_col].notna() & (df[date_col] != '')]
+        st.success(f"✅ Usando coluna de data: '{date_col}' e coluna de total: '{total_col}'")
+        
+        # Filtrar apenas linhas que têm data válida (não vazias e não NaN)
+        df = df[df[date_col].notna() & (df[date_col] != '') & (df[date_col] != 'nan')]
+        
+        if df.empty:
+            st.error("❌ Nenhuma linha com data válida encontrada")
+            return pd.DataFrame()
         
         # Converter Data para datetime
         def extract_date(date_str):
             try:
+                if pd.isna(date_str) or date_str == '' or str(date_str).lower() == 'nan':
+                    return pd.NaT
+                
                 if isinstance(date_str, str):
+                    # Pegar apenas a parte da data (antes do espaço se houver)
                     date_part = date_str.split(' ')[0]
-                    return pd.to_datetime(date_part, format='%d/%m/%Y', errors='coerce')
+                    # Tentar diferentes formatos de data
+                    for fmt in ['%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%m/%d/%Y']:
+                        try:
+                            return pd.to_datetime(date_part, format=fmt)
+                        except:
+                            continue
+                    return pd.to_datetime(date_part, errors='coerce')
                 else:
                     return pd.to_datetime(date_str, errors='coerce')
             except:
@@ -105,21 +200,50 @@ def process_trading_data(df):
         df['Data'] = df[date_col].apply(extract_date)
         
         # Converter Total para numérico
-        if df[total_col].dtype == 'object':
-            df['Total'] = df[total_col].astype(str).str.strip()
-            df['Total'] = df['Total'].str.replace(',', '.')
-            df['Total'] = df['Total'].str.replace(r'[^\d\-\.]', '', regex=True)
-            df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
-        else:
-            df['Total'] = pd.to_numeric(df[total_col], errors='coerce')
+        def convert_total(value):
+            try:
+                if pd.isna(value) or value == '' or str(value).lower() == 'nan':
+                    return 0
+                
+                # Converter para string e limpar
+                value_str = str(value).strip()
+                
+                # Remover símbolos de moeda e espaços
+                value_str = value_str.replace('R$', '').replace('$', '').strip()
+                
+                # Substituir vírgula por ponto (formato brasileiro)
+                value_str = value_str.replace(',', '.')
+                
+                # Remover caracteres não numéricos exceto - e .
+                value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
+                
+                # Converter para float
+                return float(value_str) if value_str else 0
+                
+            except:
+                return 0
         
-        # Remover linhas com datas ou totais inválidos
-        df = df.dropna(subset=['Data', 'Total'])
+        df['Total'] = df[total_col].apply(convert_total)
+        
+        # Remover linhas com datas inválidas
+        df = df.dropna(subset=['Data'])
+        
+        if df.empty:
+            st.error("❌ Nenhuma linha com data válida após conversão")
+            return pd.DataFrame()
+        
+        # Mostrar preview dos dados processados
+        st.write("📊 Preview dos dados processados:")
+        preview_df = df[['Data', 'Total']].head()
+        preview_df['Data'] = preview_df['Data'].dt.strftime('%d/%m/%Y')
+        st.dataframe(preview_df)
         
         # Agrupar por data para somar os resultados do dia
         daily_data = df.groupby('Data').agg({
             'Total': 'sum'
         }).reset_index()
+        
+        st.success(f"✅ Dados processados: {len(daily_data)} dias únicos encontrados")
         
         return daily_data
         
@@ -153,12 +277,12 @@ def create_statistics_container(df):
         # Média diária
         media_diaria = df[df['Total'] != 0]['Total'].mean() if len(df[df['Total'] != 0]) > 0 else 0
         
-        # Container com estatísticas
+        # Container com estatísticas estilizado
         st.markdown("""
-        <div style="background: linear-gradient(135deg, rgba(255, 107, 53, 0.15) 0%, rgba(247, 147, 30, 0.15) 100%); 
+        <div style="background: rgba(44, 62, 80, 0.3); 
                     backdrop-filter: blur(20px); padding: 2rem; border-radius: 15px; margin: 1rem 0; 
-                    box-shadow: 0 8px 32px rgba(255, 107, 53, 0.3); border: 1px solid rgba(255, 107, 53, 0.2);">
-            <h3 style="color: white; text-align: center; margin-bottom: 1.5rem;">🔥 Estatísticas de Trading</h3>
+                    box-shadow: 0 8px 32px rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);">
+            <h3 style="color: white; text-align: center; margin-bottom: 1.5rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">📊 Estatísticas de Trading</h3>
         </div>
         """, unsafe_allow_html=True)
         
@@ -193,15 +317,15 @@ def create_area_chart(df):
         area_data['Acumulado'] = area_data['Total'].cumsum()
         
         final_value = area_data['Acumulado'].iloc[-1]
-        line_color = 'darkgreen' if final_value >= 0 else '#b71c1c'
-        gradient_color = 'darkgreen' if final_value >= 0 else '#b71c1c'
+        line_color = '#3498db' if final_value >= 0 else '#e74c3c'
+        gradient_color = '#3498db' if final_value >= 0 else '#e74c3c'
         
         return alt.Chart(area_data).mark_area(
             line={'color': line_color, 'strokeWidth': 2},
             color=alt.Gradient(
                 gradient='linear',
                 stops=[
-                    alt.GradientStop(color='white', offset=0),
+                    alt.GradientStop(color='rgba(255,255,255,0.1)', offset=0),
                     alt.GradientStop(color=gradient_color, offset=1)
                 ],
                 x1=1, x2=1, y1=1, y2=0
@@ -235,8 +359,8 @@ def create_daily_histogram(df):
             y=alt.Y('Total:Q', title=None),
             color=alt.condition(
                 alt.datum.Total >= 0,
-                alt.value('#196127'),
-                alt.value('#b71c1c')
+                alt.value('#3498db'),
+                alt.value('#e74c3c')
             ),
             tooltip=[
                 alt.Tooltip('Data:T', format='%d/%m/%Y'),
@@ -274,8 +398,8 @@ def create_radial_chart(df):
             alt.Radius("AbsTotal:Q").scale(type="sqrt", zero=True, rangeMin=20),
             color=alt.condition(
                 alt.datum.Total >= 0,
-                alt.value('#196127'),
-                alt.value('#b71c1c')
+                alt.value('#3498db'),
+                alt.value('#e74c3c')
             )
         )
 
@@ -337,10 +461,10 @@ def create_trading_heatmap(df):
                                ticks=False, domain=False, grid=False)),
             color=alt.condition(
                 alt.datum.display_total == None,
-                alt.value('#ebedf0'),
+                alt.value('rgba(255,255,255,0.1)'),
                 alt.Color('display_total:Q',
                     scale=alt.Scale(
-                        range=['#ebedf0', '#c6e48b', '#7bc96f', '#239a3b', '#196127'],
+                        range=['rgba(255,255,255,0.1)', '#74b9ff', '#0984e3', '#2d3436', '#636e72'],
                         type='linear'
                     ),
                     legend=None)
@@ -358,178 +482,197 @@ def create_trading_heatmap(df):
 
 def main():
     st.title("📈 Trading Activity Dashboard")
-    st.markdown("**Sistema integrado:** Upload CSV → Google Sheets → Visualizações")
+    st.markdown("**Sistema integrado:** Upload CSV → Google Sheets (aba dados) → Visualizações")
     
-    # CSS para tema escuro com efeito de fogo
+    # CSS para background com partículas animadas (baseado no HTML fornecido)
     st.markdown("""
     <style>
+    /* Background principal com gradiente radial exato do HTML fornecido */
     .stApp {
-        background: linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 25%, #2d1b1b 50%, #1a1a1a 75%, #0c0c0c 100%);
+        background: radial-gradient(circle at 30% 30%, #2c3e50, #000);
         background-attachment: fixed;
         position: relative;
         overflow-x: hidden;
+        min-height: 100vh;
+        color: white;
+        font-family: Arial, sans-serif;
     }
     
-    .fire-particles {
-        position: fixed;
-        top: 0;
-        left: 0;
+    /* Container de partículas exato do HTML fornecido */
+    .particles {
+        position: absolute;
         width: 100%;
         height: 100%;
+        overflow: hidden;
+        top: 0;
+        left: 0;
         pointer-events: none;
         z-index: -1;
-        overflow: hidden;
     }
     
+    /* Partículas individuais exatas do HTML fornecido */
     .particle {
         position: absolute;
-        width: 4px;
-        height: 4px;
-        background: radial-gradient(circle, #ff6b35 0%, #f7931e 30%, #ffaa00 60%, transparent 100%);
         border-radius: 50%;
-        opacity: 0;
-        animation: rise 8s infinite linear;
-        box-shadow: 0 0 10px #ff6b35, 0 0 20px #ff6b35, 0 0 30px #ff6b35;
+        background: rgba(255, 255, 255, 0.8);
+        animation: float 20s infinite linear;
     }
     
-    .particle.large {
-        width: 6px;
-        height: 6px;
-        background: radial-gradient(circle, #ff4500 0%, #ff6b35 40%, #ffaa00 70%, transparent 100%);
-        box-shadow: 0 0 15px #ff4500, 0 0 25px #ff4500, 0 0 35px #ff4500;
-        animation-duration: 10s;
-    }
-    
-    .particle.small {
-        width: 2px;
-        height: 2px;
-        background: radial-gradient(circle, #ffaa00 0%, #ffd700 50%, transparent 100%);
-        box-shadow: 0 0 5px #ffaa00, 0 0 10px #ffaa00;
-        animation-duration: 6s;
-    }
-    
-    @keyframes rise {
+    /* Animação de flutuação exata do HTML fornecido */
+    @keyframes float {
         0% {
-            bottom: -10px;
+            transform: translateY(100vh) scale(0.5);
             opacity: 0;
-            transform: translateX(0px) scale(0.5);
-        }
-        10% {
-            opacity: 1;
-            transform: translateX(10px) scale(1);
         }
         50% {
-            opacity: 0.8;
-            transform: translateX(-20px) scale(1.2);
-        }
-        80% {
-            opacity: 0.4;
-            transform: translateX(15px) scale(0.8);
+            opacity: 1;
         }
         100% {
-            bottom: 100vh;
+            transform: translateY(-10vh) scale(1.2);
             opacity: 0;
-            transform: translateX(-10px) scale(0.3);
         }
     }
     
-    .ambient-glow {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: radial-gradient(ellipse at center bottom, rgba(255, 107, 53, 0.1) 0%, rgba(247, 147, 30, 0.05) 30%, transparent 70%);
-        pointer-events: none;
-        z-index: -1;
-        animation: pulse 4s ease-in-out infinite alternate;
+    /* Ajustes para elementos do Streamlit */
+    .stApp > header {
+        background-color: transparent;
     }
     
-    @keyframes pulse {
-        0% { opacity: 0.3; }
-        100% { opacity: 0.7; }
-    }
-    
+    /* Títulos e textos com melhor contraste */
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
     }
     
+    /* Texto geral */
     .stMarkdown, .stText, p, span {
         color: #e0e0e0 !important;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
     }
     
+    /* Botões com tema azul */
     .stButton > button {
-        background: linear-gradient(45deg, #ff4500, #ff6b35);
+        background: linear-gradient(45deg, #3498db, #74b9ff);
         color: white;
         border: none;
-        box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+        box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
         transition: all 0.3s ease;
     }
     
     .stButton > button:hover {
-        background: linear-gradient(45deg, #ff6b35, #ff8c00);
-        box-shadow: 0 6px 20px rgba(255, 107, 53, 0.6);
+        background: linear-gradient(45deg, #74b9ff, #0984e3);
+        box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6);
         transform: translateY(-2px);
     }
     
+    /* Upload area com tema escuro */
     .stFileUploader > div {
-        background-color: rgba(40, 40, 40, 0.8);
-        border: 2px dashed rgba(255, 107, 53, 0.5);
+        background-color: rgba(44, 62, 80, 0.3);
+        border: 2px dashed rgba(255, 255, 255, 0.5);
         backdrop-filter: blur(10px);
     }
     
-    .stInfo, .stSuccess, .stWarning, .stError {
-        background-color: rgba(40, 40, 40, 0.9);
+    /* Expander com tema escuro */
+    .streamlit-expanderHeader {
+        background-color: rgba(44, 62, 80, 0.3);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+    
+    /* Dataframe com tema escuro */
+    .stDataFrame {
+        background-color: rgba(44, 62, 80, 0.2);
         backdrop-filter: blur(10px);
-        border-left: 4px solid #ff6b35;
+    }
+    
+    /* Info boxes */
+    .stInfo, .stSuccess, .stWarning, .stError {
+        background-color: rgba(44, 62, 80, 0.3);
+        backdrop-filter: blur(10px);
+        border-left: 4px solid #3498db;
+    }
+    
+    /* Métricas com fundo transparente */
+    .metric-container {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 10px;
+        padding: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
     </style>
     
-    <div class="fire-particles" id="fireParticles"></div>
-    <div class="ambient-glow"></div>
+    <!-- HTML para partículas animadas exato do HTML fornecido -->
+    <div class="particles">
+        <div class="particle" style="width: 10px; height: 10px; left: 20%; animation-delay: 0s;"></div>
+        <div class="particle" style="width: 8px; height: 8px; left: 40%; animation-delay: 5s;"></div>
+        <div class="particle" style="width: 12px; height: 12px; left: 60%; animation-delay: 10s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 80%; animation-delay: 15s;"></div>
+        <div class="particle" style="width: 14px; height: 14px; left: 30%; animation-delay: 3s;"></div>
+        <div class="particle" style="width: 9px; height: 9px; left: 70%; animation-delay: 8s;"></div>
+        <div class="particle" style="width: 11px; height: 11px; left: 50%; animation-delay: 12s;"></div>
+        <div class="particle" style="width: 7px; height: 7px; left: 90%; animation-delay: 18s;"></div>
+        <div class="particle" style="width: 13px; height: 13px; left: 10%; animation-delay: 6s;"></div>
+        <div class="particle" style="width: 5px; height: 5px; left: 25%; animation-delay: 14s;"></div>
+        <div class="particle" style="width: 15px; height: 15px; left: 75%; animation-delay: 2s;"></div>
+        <div class="particle" style="width: 8px; height: 8px; left: 45%; animation-delay: 16s;"></div>
+        <div class="particle" style="width: 10px; height: 10px; left: 65%; animation-delay: 4s;"></div>
+        <div class="particle" style="width: 12px; height: 12px; left: 85%; animation-delay: 10s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 15%; animation-delay: 7s;"></div>
+        <div class="particle" style="width: 14px; height: 14px; left: 35%; animation-delay: 13s;"></div>
+        <div class="particle" style="width: 9px; height: 9px; left: 55%; animation-delay: 9s;"></div>
+        <div class="particle" style="width: 11px; height: 11px; left: 95%; animation-delay: 11s;"></div>
+        <div class="particle" style="width: 7px; height: 7px; left: 5%; animation-delay: 17s;"></div>
+        <div class="particle" style="width: 13px; height: 13px; left: 82%; animation-delay: 1s;"></div>
+    </div>
     
     <script>
-    function createFireParticles() {
-        const container = document.getElementById('fireParticles');
+    // JavaScript para criar mais partículas dinamicamente
+    function createMoreParticles() {
+        const container = document.querySelector('.particles');
         if (!container) return;
         
-        container.innerHTML = '';
-        
-        for (let i = 0; i < 50; i++) {
+        // Criar 30 partículas adicionais
+        for (let i = 0; i < 30; i++) {
             const particle = document.createElement('div');
             particle.className = 'particle';
             
-            const rand = Math.random();
-            if (rand < 0.3) particle.classList.add('small');
-            else if (rand > 0.7) particle.classList.add('large');
+            // Tamanho aleatório entre 4px e 16px
+            const size = Math.random() * 12 + 4;
+            particle.style.width = size + 'px';
+            particle.style.height = size + 'px';
             
+            // Posição horizontal aleatória
             particle.style.left = Math.random() * 100 + '%';
-            particle.style.animationDelay = Math.random() * 8 + 's';
             
-            const duration = 6 + Math.random() * 4;
+            // Delay aleatório para animação
+            particle.style.animationDelay = Math.random() * 20 + 's';
+            
+            // Duração ligeiramente variada
+            const duration = 18 + Math.random() * 6;
             particle.style.animationDuration = duration + 's';
             
             container.appendChild(particle);
         }
     }
     
-    document.addEventListener('DOMContentLoaded', createFireParticles);
-    setInterval(createFireParticles, 30000);
+    // Criar partículas quando a página carregar
+    document.addEventListener('DOMContentLoaded', createMoreParticles);
     </script>
     """, unsafe_allow_html=True)
     
-    # Carregar dados do Google Sheets automaticamente
-    with st.spinner("Carregando dados do Google Sheets..."):
+    # Carregar dados da aba "dados" do Google Sheets automaticamente
+    with st.spinner("Carregando dados da aba 'dados' do Google Sheets..."):
         sheets_data = load_data_from_sheets()
     
-    # Seção de upload para alimentar o Google Sheets
-    st.subheader("📤 Alimentar Banco de Dados")
+    # Seção de upload para alimentar a aba "dados"
+    st.subheader("📤 Alimentar Base de Dados")
+    st.info("💡 O arquivo CSV será processado e enviado para a aba 'dados' da planilha Google Sheets")
+    
     uploaded_file = st.file_uploader(
-        "Faça upload do CSV para atualizar o Google Sheets",
+        "Faça upload do CSV para atualizar a aba 'dados' do Google Sheets",
         type=['csv'],
-        help="Este arquivo será processado e enviado para o Google Sheets."
+        help="Este arquivo será processado e enviado para a aba 'dados' da planilha."
     )
     
     # Processar upload se houver
@@ -541,34 +684,54 @@ def main():
             for encoding in encodings:
                 try:
                     uploaded_file.seek(0)
-                    df = pd.read_csv(uploaded_file, encoding=encoding, sep=';', 
-                                   skiprows=4, on_bad_lines='skip')
+                    # Ler CSV pulando as primeiras 4 linhas, usando a linha 5 como cabeçalho
+                    df = pd.read_csv(
+                        uploaded_file, 
+                        encoding=encoding, 
+                        sep=';',  # Separador ponto e vírgula
+                        skiprows=4,  # Pular as primeiras 4 linhas
+                        on_bad_lines='skip'  # Ignorar linhas problemáticas
+                    )
+                    st.success(f"✅ Arquivo carregado com encoding: {encoding}")
                     break
-                except (UnicodeDecodeError, pd.errors.ParserError):
+                except (UnicodeDecodeError, pd.errors.ParserError) as e:
+                    st.warning(f"⚠️ Tentativa com encoding {encoding} falhou: {str(e)}")
                     continue
             
             if df is None:
-                st.error("Não foi possível ler o arquivo.")
+                st.error("❌ Não foi possível ler o arquivo com nenhum encoding testado.")
                 return
+            
+            # Mostrar informações sobre o arquivo carregado
+            st.write(f"📁 Arquivo carregado: {len(df)} linhas, {len(df.columns)} colunas")
+            
+            # Mostrar preview do arquivo bruto
+            with st.expander("👀 Preview do arquivo CSV bruto", expanded=False):
+                st.dataframe(df.head(10))
             
             processed_df = process_trading_data(df)
             
             if not processed_df.empty:
-                with st.spinner("Enviando dados para Google Sheets..."):
-                    if append_data_to_sheets(processed_df):
-                        st.success("✅ Dados enviados com sucesso! Recarregando visualizações...")
+                with st.spinner("Adicionando novos dados à aba 'dados' do Google Sheets..."):
+                    success = append_data_to_sheets_robust(processed_df)
+                    
+                    if success:
+                        st.success("✅ Dados adicionados com sucesso! Recarregando visualizações...")
                         st.cache_data.clear()
                         sheets_data = load_data_from_sheets()
                     else:
-                        st.error("❌ Erro ao enviar dados para Google Sheets.")
+                        st.error("❌ Erro ao adicionar dados ao Google Sheets.")
+            else:
+                st.error("❌ Nenhum dado válido foi processado do arquivo CSV.")
                         
         except Exception as e:
-            st.error(f"Erro ao processar arquivo: {str(e)}")
+            st.error(f"❌ Erro ao processar arquivo: {str(e)}")
     
-    # Exibir visualizações baseadas nos dados do Google Sheets
+    # Exibir visualizações baseadas nos dados da aba "dados"
     if sheets_data is not None and not sheets_data.empty:
         st.markdown("---")
-        st.subheader("📊 Dashboard - Dados do Google Sheets")
+        st.subheader("📊 Dashboard - Dados da Aba 'dados'")
+        st.info(f"📋 Exibindo dados da planilha Google Sheets (aba 'dados') - {len(sheets_data)} registros encontrados")
         
         # Container de estatísticas
         create_statistics_container(sheets_data)
@@ -599,15 +762,16 @@ def main():
             with col2:
                 st.altair_chart(radial_chart, use_container_width=True)
         
-        # Dados da planilha
-        with st.expander("📋 Dados do Google Sheets", expanded=False):
+        # Dados da aba "dados"
+        with st.expander("📋 Dados da Aba 'dados' - Google Sheets", expanded=False):
             display_df = sheets_data.copy()
             display_df['Data'] = display_df['Data'].dt.strftime('%d/%m/%Y')
             display_df['Total'] = display_df['Total'].apply(lambda x: f"R$ {x:,.2f}")
             st.dataframe(display_df, use_container_width=True)
+            st.caption(f"Fonte: Google Sheets - Aba 'dados' | Total de registros: {len(display_df)}")
     
     else:
-        st.info("📋 Nenhum dado encontrado no Google Sheets. Faça upload de um arquivo CSV para começar.")
+        st.info("📋 Nenhum dado encontrado na aba 'dados' do Google Sheets. Faça upload de um arquivo CSV para começar.")
         
         # Mostrar exemplo do formato esperado
         st.subheader("📋 Formato Esperado do CSV")
@@ -618,6 +782,7 @@ def main():
             'Total': ['80,00', '-55,00', '125,00']
         }
         st.dataframe(pd.DataFrame(example_data))
+        st.caption("💡 Os dados processados serão enviados para a aba 'dados' da planilha Google Sheets")
 
 if __name__ == "__main__":
     main()
