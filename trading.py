@@ -77,8 +77,8 @@ def load_data_from_sheets():
     except Exception:
         return None
 
-def copy_full_csv_to_sheets(df_original, filename=None):
-    """Cola TODAS as linhas preenchidas do CSV literalmente na planilha Google Sheets."""
+def copy_full_csv_to_sheets(uploaded_file, filename=None):
+    """Cola dados do CSV EXATAMENTE como estão no arquivo original, sem processamento."""
     try:
         gc = get_gspread_client()
         if gc is None:
@@ -98,60 +98,82 @@ def copy_full_csv_to_sheets(df_original, filename=None):
         except:
             # Se não existe, criar nova aba
             worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
-            
-            # Criar cabeçalho padrão na linha 1
-            header_padrao = [
-                'Subconta', 'Ativo', 'Abertura', 'Fechamento', 'Tempo Operação',
-                'Qtd Compra', 'Qtd Venda', 'Lado', 'Preço Compra', 'Preço Venda',
-                'Preço de Mercado', 'Res. Intervalo', 'Res. Intervalo (%)',
-                'Número Operação', 'Res. Operação', 'Res. Operação (%)', 'TET', 'Total'
-            ]
-            worksheet.update('A1', [header_padrao])
+        
+        # LER O ARQUIVO CSV ORIGINAL DIRETAMENTE (sem pandas)
+        uploaded_file.seek(0)  # Voltar ao início do arquivo
+        
+        # Tentar diferentes encodings
+        encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
+        csv_lines = None
+        
+        for encoding in encodings:
+            try:
+                uploaded_file.seek(0)
+                content = uploaded_file.read().decode(encoding)
+                csv_lines = content.split('\n')
+                break
+            except:
+                continue
+        
+        if csv_lines is None:
+            return False, "Erro ao ler arquivo"
+        
+        # Pegar dados a partir da linha 5 (índice 4)
+        if len(csv_lines) < 5:
+            return False, "Arquivo não tem dados suficientes"
+        
+        # Linha 5 é o cabeçalho (índice 4)
+        header_line = csv_lines[4].strip()
+        data_lines = csv_lines[5:]  # Dados a partir da linha 6
+        
+        # Processar cabeçalho
+        header_cells = [cell.strip().strip('"') for cell in header_line.split(';')]
+        
+        # Processar linhas de dados - APENAS as que têm conteúdo
+        data_rows = []
+        for line in data_lines:
+            line = line.strip()
+            if line:  # Se a linha não está vazia
+                cells = [cell.strip().strip('"') for cell in line.split(';')]
+                # Verificar se a linha tem pelo menos uma célula com conteúdo
+                if any(cell for cell in cells):
+                    # Garantir que a linha tenha o mesmo número de colunas que o cabeçalho
+                    while len(cells) < len(header_cells):
+                        cells.append('')
+                    # Se tem mais colunas que o cabeçalho, cortar
+                    if len(cells) > len(header_cells):
+                        cells = cells[:len(header_cells)]
+                    data_rows.append(cells)
         
         # Obter dados existentes na planilha
         existing_data = worksheet.get_all_values()
         
-        # Encontrar a primeira linha vazia abaixo do cabeçalho (linha 1)
-        first_empty_row = 2  # Começar da linha 2 (abaixo do cabeçalho)
-        
-        if len(existing_data) > 1:  # Se há mais que só o cabeçalho
-            for i in range(1, len(existing_data)):  # Começar da linha 2 (índice 1)
+        # Se a planilha está vazia, adicionar cabeçalho primeiro
+        if not existing_data:
+            worksheet.update('A1', [header_cells])
+            first_empty_row = 2
+        else:
+            # Verificar se o cabeçalho já existe
+            if existing_data[0] != header_cells:
+                # Se o cabeçalho é diferente, substituir
+                worksheet.update('A1', [header_cells])
+            
+            # Encontrar primeira linha vazia
+            first_empty_row = 2  # Começar da linha 2
+            for i in range(1, len(existing_data)):
                 row = existing_data[i]
-                # Se a linha está completamente vazia
                 if not any(cell.strip() for cell in row if cell):
-                    first_empty_row = i + 1  # +1 porque gspread usa indexação 1-based
+                    first_empty_row = i + 1
                     break
                 else:
-                    first_empty_row = i + 2  # Próxima linha após a última preenchida
+                    first_empty_row = i + 2
         
-        # Filtrar TODAS as linhas que têm pelo menos uma célula preenchida
-        linhas_preenchidas = []
-        
-        for _, row in df_original.iterrows():
-            # Verificar se a linha tem pelo menos uma célula com conteúdo
-            linha_tem_conteudo = False
-            linha_dados = []
+        # Inserir dados na planilha
+        if data_rows:
+            # Calcular range
+            num_rows = len(data_rows)
+            num_cols = len(header_cells)
             
-            for value in row:
-                if pd.isna(value):
-                    linha_dados.append('')
-                else:
-                    valor_str = str(value).strip()
-                    linha_dados.append(valor_str)
-                    if valor_str:  # Se não está vazio
-                        linha_tem_conteudo = True
-            
-            # Se a linha tem conteúdo, adicionar à lista
-            if linha_tem_conteudo:
-                linhas_preenchidas.append(linha_dados)
-        
-        # Inserir TODAS as linhas preenchidas na planilha
-        if linhas_preenchidas:
-            # Calcular o range para inserção
-            num_rows = len(linhas_preenchidas)
-            num_cols = len(linhas_preenchidas[0])
-            
-            # Converter número para letra da coluna
             def num_to_col_letter(num):
                 result = ""
                 while num > 0:
@@ -164,10 +186,10 @@ def copy_full_csv_to_sheets(df_original, filename=None):
             end_row = first_empty_row + num_rows - 1
             range_name = f'A{first_empty_row}:{end_col}{end_row}'
             
-            # Inserir os dados LITERALMENTE
-            worksheet.update(range_name, linhas_preenchidas, value_input_option='RAW')
+            # Inserir dados
+            worksheet.update(range_name, data_rows, value_input_option='RAW')
         
-        return True, f"{sheet_name} (coladas {len(linhas_preenchidas)} linhas preenchidas)"
+        return True, f"{sheet_name} (coladas {len(data_rows)} linhas do CSV original)"
         
     except Exception as e:
         return False, str(e)
@@ -924,9 +946,17 @@ def main():
     # Processar upload
     if uploaded_file is not None:
         try:
+            filename = uploaded_file.name
+            
+            # Colar dados ORIGINAIS do CSV (sem processamento)
+            success_full, sheet_name = copy_full_csv_to_sheets(uploaded_file, filename)
+            
+            if success_full:
+                st.success(f"✅ CSV original colado: {sheet_name}")
+            
+            # Processar dados para dashboard usando pandas (COM custos)
             encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
             df_original = None
-            filename = uploaded_file.name
             
             for encoding in encodings:
                 try:
@@ -943,13 +973,6 @@ def main():
                     continue
             
             if df_original is not None:
-                # Colar TODAS as linhas preenchidas literalmente
-                success_full, sheet_name = copy_full_csv_to_sheets(df_original, filename)
-                
-                if success_full:
-                    st.success(f"✅ Todas as linhas preenchidas coladas: {sheet_name}")
-                
-                # Processar dados para dashboard (COM custos)
                 processed_result = process_trading_data(df_original, filename)
                 
                 if isinstance(processed_result, tuple):
