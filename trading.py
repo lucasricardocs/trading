@@ -70,156 +70,138 @@ def process_trading_data(df):
     
     return daily_data
 
+def create_simple_heatmap(df):
+    """Cria um heatmap simplificado caso o principal falhe."""
+    try:
+        df_year = df.copy()
+        current_year = df_year['Data'].dt.year.max()
+        
+        # Criar grid simples
+        df_year['day_of_week'] = df_year['Data'].dt.dayofweek
+        df_year['week'] = df_year['Data'].dt.isocalendar().week
+        
+        # Mapear dias da semana
+        day_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+        df_year['day_name'] = df_year['day_of_week'].map(lambda x: day_names[x])
+        
+        chart = alt.Chart(df_year).mark_rect(
+            stroke='white',
+            strokeWidth=1
+        ).encode(
+            x=alt.X('week:O', title='Semana'),
+            y=alt.Y('day_name:N', sort=day_names, title='Dia'),
+            color=alt.Color('Total:Q',
+                scale=alt.Scale(scheme='greens'),
+                title='Resultado (R$)'),
+            tooltip=[
+                alt.Tooltip('Data:T', format='%d/%m/%Y'),
+                alt.Tooltip('Total:Q', format=',.2f')
+            ]
+        ).properties(
+            width=600,
+            height=200,
+            title=f'Heatmap de Trading - {current_year}'
+        )
+        
+        return chart
+    except Exception as e:
+        st.error(f"Erro no heatmap simplificado: {e}")
+        return None
+
 def create_trading_heatmap(df):
     """Cria um gráfico de heatmap estilo GitHub para a atividade de trading."""
-    if df.empty or 'Data' not in df.columns or 'Total' not in df.columns:
-        st.warning("Dados insuficientes para gerar o heatmap.")
-        return None
+    try:
+        if df.empty or 'Data' not in df.columns or 'Total' not in df.columns:
+            st.warning("Dados insuficientes para gerar o heatmap.")
+            return None
 
-    # Determinar o ano atual ou mais recente dos dados
-    current_year = df['Data'].dt.year.max()
-    df_year = df[df['Data'].dt.year == current_year].copy()
+        # Determinar o ano atual ou mais recente dos dados
+        current_year = df['Data'].dt.year.max()
+        df_year = df[df['Data'].dt.year == current_year].copy()
 
-    if df_year.empty:
-        st.warning(f"Sem dados para o ano {current_year}.")
-        return None
+        if df_year.empty:
+            st.warning(f"Sem dados para o ano {current_year}.")
+            return None
 
-    # Obter o dia da semana do primeiro dia do ano (0=segunda, 6=domingo)
-    first_day_of_year = pd.Timestamp(f'{current_year}-01-01')
-    first_day_weekday = first_day_of_year.weekday()
-    
-    # Calcular quantos dias antes do 01/01 precisamos adicionar para começar na segunda
-    days_before = first_day_weekday
-    
-    # Criar range de datas começando na segunda-feira da semana do 01/01
-    start_date = first_day_of_year - pd.Timedelta(days=days_before)
-    end_date = datetime(current_year, 12, 31)
-    
-    # Garantir que terminamos no domingo da última semana
-    days_after = 6 - end_date.weekday()
-    if days_after < 6:
-        end_date = end_date + pd.Timedelta(days=days_after)
-    
-    all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
-
-    # DataFrame com todas as datas
-    full_df = pd.DataFrame({'Data': all_dates})
-    
-    # Marcar quais datas são do ano atual
-    full_df['is_current_year'] = full_df['Data'].dt.year == current_year
-    
-    # Fazer merge com os dados reais
-    full_df = full_df.merge(df_year[['Data', 'Total']], on='Data', how='left')
-    
-    # Preencher NaNs
-    full_df['Total'] = full_df['Total'].fillna(0)
-    
-    # Para dias que não são do ano atual, definir como None para visualização
-    full_df['display_total'] = full_df['Total'].copy()
-    mask_not_current_year = ~full_df['is_current_year']
-    full_df.loc[mask_not_current_year, 'display_total'] = None
-
-    # Mapear os nomes dos dias
-    full_df['day_of_week'] = full_df['Data'].dt.weekday
-    day_name_map = {0: 'Seg', 1: 'Ter', 2: 'Qua', 3: 'Qui', 4: 'Sex', 5: 'Sáb', 6: 'Dom'}
-    full_df['day_display_name'] = full_df['day_of_week'].map(day_name_map)
-    
-    # Ordem fixa dos dias
-    day_display_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
-    
-    full_df['month'] = full_df['Data'].dt.month
-    full_df['month_name'] = full_df['Data'].dt.strftime('%b')
-
-    # Calcular semana baseado na primeira data
-    full_df['week_corrected'] = ((full_df['Data'] - start_date).dt.days // 7)
-    
-    # Encontrar a primeira semana de cada mês para os rótulos
-    month_labels = full_df[full_df['is_current_year']].groupby('month').agg(
-        week_corrected=('week_corrected', 'min'),
-        month_name=('month_name', 'first')
-    ).reset_index()
-
-    # Determinar escala de cores baseada nos valores
-    max_value = full_df['Total'].max()
-    if max_value > 0:
-        thresholds = [0.01, max_value * 0.25, max_value * 0.5, max_value * 0.75]
-    else:
-        thresholds = [0.01, 100, 250, 500]
-
-    # Labels dos meses
-    months_chart = alt.Chart(month_labels).mark_text(
-        align='center',
-        baseline='bottom',
-        fontSize=12,
-        dy=-5,
-        color='#666666'
-    ).encode(
-        x=alt.X('week_corrected:O', axis=None),
-        text='month_name:N'
-    )
-
-    # Tooltip
-    tooltip_fields = [
-        alt.Tooltip('Data:T', title='Data', format='%d/%m/%Y'),
-        alt.Tooltip('day_display_name:N', title='Dia'),
-        alt.Tooltip('Total:Q', title='Resultado (R$)', format=',.2f')
-    ]
-
-    # Gráfico principal (heatmap)
-    heatmap = alt.Chart(full_df).mark_rect(
-        stroke='#ffffff',
-        strokeWidth=2,
-        cornerRadius=2
-    ).encode(
-        x=alt.X('week_corrected:O',
-                title=None, 
-                axis=None),
-        y=alt.Y('day_display_name:N', 
-                sort=day_display_names,
-                title=None,
-                axis=alt.Axis(labelAngle=0, labelFontSize=12, ticks=False, 
-                            domain=False, grid=False, labelColor='#666666')),
-        color=alt.condition(
-            alt.datum.display_total == None,
-            alt.value('#f0f0f0'),
-            alt.Color('display_total:Q',
-                scale=alt.Scale(
-                    range=['#ebedf0', '#c6e48b', '#7bc96f', '#239a3b', '#196127'],
-                    type='threshold',
-                    domain=thresholds
-                ),
-                legend=alt.Legend(
-                    title="Resultado Diário (R$)",
-                    titleFontSize=12,
-                    labelFontSize=10,
-                    orient='bottom',
-                    direction='horizontal'
-                ))
-        ),
-        tooltip=tooltip_fields
-    ).properties(
-        height=180,
-        width=800
-    )
-
-    # Combinar gráfico final
-    final_chart = alt.vconcat(
-        months_chart,
-        heatmap,
-        spacing=5
-    ).properties(
-        title=alt.TitleParams(
-            text=f'Atividade de Trading - {current_year}',
-            fontSize=20,
-            anchor='start',
-            color='#333333',
-            dy=-10
+        # Criar range completo de datas para o ano
+        start_date = pd.Timestamp(f'{current_year}-01-01')
+        end_date = pd.Timestamp(f'{current_year}-12-31')
+        
+        # Ajustar para começar na segunda-feira
+        start_weekday = start_date.weekday()
+        if start_weekday > 0:
+            start_date = start_date - pd.Timedelta(days=start_weekday)
+        
+        # Ajustar para terminar no domingo
+        end_weekday = end_date.weekday()
+        if end_weekday < 6:
+            end_date = end_date + pd.Timedelta(days=6-end_weekday)
+        
+        all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
+        
+        # DataFrame com todas as datas
+        full_df = pd.DataFrame({'Data': all_dates})
+        full_df = full_df.merge(df_year[['Data', 'Total']], on='Data', how='left')
+        full_df['Total'] = full_df['Total'].fillna(0)
+        
+        # Adicionar informações de semana e dia
+        full_df['week'] = ((full_df['Data'] - start_date).dt.days // 7)
+        full_df['day_of_week'] = full_df['Data'].dt.weekday
+        
+        # Mapear nomes dos dias
+        day_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+        full_df['day_name'] = full_df['day_of_week'].map(lambda x: day_names[x])
+        
+        # Marcar dias do ano atual
+        full_df['is_current_year'] = full_df['Data'].dt.year == current_year
+        full_df['display_total'] = full_df['Total'].where(full_df['is_current_year'], None)
+        
+        # Determinar thresholds para cores
+        max_val = full_df['Total'].max()
+        if max_val > 0:
+            thresholds = [0.01, max_val * 0.25, max_val * 0.5, max_val * 0.75]
+        else:
+            thresholds = [0.01, 100, 250, 500]
+        
+        # Criar heatmap
+        heatmap = alt.Chart(full_df).mark_rect(
+            stroke='white',
+            strokeWidth=2,
+            cornerRadius=2
+        ).encode(
+            x=alt.X('week:O', title=None, axis=None),
+            y=alt.Y('day_name:N', 
+                   sort=day_names,
+                   title=None,
+                   axis=alt.Axis(labelAngle=0, labelFontSize=12, 
+                               ticks=False, domain=False, grid=False)),
+            color=alt.condition(
+                alt.datum.display_total == None,
+                alt.value('#ebedf0'),
+                alt.Color('display_total:Q',
+                    scale=alt.Scale(
+                        range=['#ebedf0', '#c6e48b', '#7bc96f', '#239a3b', '#196127'],
+                        type='threshold',
+                        domain=thresholds
+                    ),
+                    legend=alt.Legend(title="Resultado (R$)", orient='bottom'))
+            ),
+            tooltip=[
+                alt.Tooltip('Data:T', format='%d/%m/%Y'),
+                alt.Tooltip('day_name:N', title='Dia'),
+                alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
+            ]
+        ).properties(
+            width=800,
+            height=180,
+            title=f'Atividade de Trading - {current_year}'
         )
-    ).resolve_scale(
-        color='independent'
-    )
-
-    return final_chart
+        
+        return heatmap
+        
+    except Exception as e:
+        st.error(f"Erro ao criar heatmap: {e}")
+        return None
 
 def main():
     st.set_page_config(
@@ -294,10 +276,27 @@ def main():
                 
                 # Criar e exibir o heatmap
                 st.subheader("Heatmap de Atividade")
+                
+                # Debug: mostrar dados processados
+                st.write(f"Dados processados: {len(processed_df)} registros")
+                if not processed_df.empty:
+                    st.write(f"Período: {processed_df['Data'].min().strftime('%d/%m/%Y')} a {processed_df['Data'].max().strftime('%d/%m/%Y')}")
+                
                 chart = create_trading_heatmap(processed_df)
                 
                 if chart is not None:
-                    st.altair_chart(chart, use_container_width=True)
+                    try:
+                        st.altair_chart(chart, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Erro ao exibir o heatmap: {e}")
+                        st.write("Tentando versão simplificada...")
+                        
+                        # Versão simplificada do heatmap
+                        simple_chart = create_simple_heatmap(processed_df)
+                        if simple_chart:
+                            st.altair_chart(simple_chart, use_container_width=True)
+                else:
+                    st.error("Não foi possível gerar o heatmap.")
                     
                     # Mostrar legenda explicativa
                     st.info("""
