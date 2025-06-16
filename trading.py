@@ -9,11 +9,12 @@ from google.oauth2.service_account import Credentials
 from gspread.exceptions import SpreadsheetNotFound
 import warnings
 import time
+import re
 
-# Suprimir warnings específicos do pandas
+# Suprimir warnings
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*observed=False.*')
 
-# --- Configurações Globais e Constantes ---
+# --- Configurações Globais ---
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM'
 WORKSHEET_NAME = 'dados'
 
@@ -24,15 +25,20 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- Inicialização de Session State ---
+def initialize_costs():
+    """Inicializa os custos padrão no session state."""
+    if 'custo_wdo' not in st.session_state:
+        st.session_state.custo_wdo = 0.99
+    if 'custo_win' not in st.session_state:
+        st.session_state.custo_win = 0.39
+
 # --- Funções de Conexão com Google Sheets ---
 @st.cache_resource
 def get_gspread_client():
     """Cria e retorna cliente gspread autenticado."""
     try:
-        # Carrega as credenciais dos secrets do Streamlit
         credentials_info = dict(st.secrets["google_credentials"])
-        
-        # Cria as credenciais
         credentials = Credentials.from_service_account_info(
             credentials_info,
             scopes=[
@@ -40,65 +46,44 @@ def get_gspread_client():
                 'https://www.googleapis.com/auth/drive'
             ]
         )
-        
-        # Retorna o cliente gspread
         return gspread.authorize(credentials)
-    
-    except Exception as e:
-        st.error(f"Erro ao autenticar com Google Sheets: {e}")
+    except Exception:
         return None
 
 @st.cache_data(ttl=60)
 def load_data_from_sheets():
     """Carrega dados da aba 'dados' da planilha Google Sheets."""
     try:
-        # Obter cliente gspread
         gc = get_gspread_client()
         if gc is None:
             return None
         
-        # Abrir a planilha
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
         worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
-        
-        # Obter todos os dados
         data = worksheet.get_all_records()
         
         if not data:
             return None
         
-        # Converter para DataFrame
         df = pd.DataFrame(data)
-        
-        # Converter tipos de dados
         df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
         df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
-        
-        # Remover linhas com dados inválidos
         df = df.dropna(subset=['Data', 'Total'])
         
         return df
-        
-    except SpreadsheetNotFound:
-        st.error(f"Planilha com ID {SPREADSHEET_ID} não encontrada")
-        return None
-    except Exception as e:
-        st.error(f'Erro ao carregar dados do Google Sheets: {str(e)}')
+    except Exception:
         return None
 
 def append_data_to_sheets(df):
-    """Adiciona novos dados à aba 'dados' sem substituir os existentes."""
+    """Adiciona novos dados à aba 'dados'."""
     try:
-        # Obter cliente gspread
         gc = get_gspread_client()
         if gc is None:
             return False
         
-        # Abrir a planilha
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
         worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
         
-        # Obter dados existentes para verificar duplicatas
         existing_data = worksheet.get_all_records()
         existing_dates = set()
         
@@ -110,29 +95,21 @@ def append_data_to_sheets(df):
                 except:
                     continue
         
-        # Preparar novos dados
         new_data = df.copy()
         new_data['Data'] = pd.to_datetime(new_data['Data'])
         
-        # Filtrar apenas dados que ainda não existem
         if existing_dates:
             new_dates = set(new_data['Data'].dt.date)
             dates_to_add = new_dates - existing_dates
             
             if dates_to_add:
                 new_data = new_data[new_data['Data'].dt.date.isin(dates_to_add)]
-                st.info(f"📅 Adicionando {len(new_data)} novos registros")
             else:
-                st.warning("⚠️ Todos os dados já existem na planilha")
                 return True
-        else:
-            st.info(f"📅 Planilha vazia. Adicionando {len(new_data)} registros iniciais")
         
         if new_data.empty:
-            st.warning("⚠️ Nenhum dado novo para adicionar")
             return True
         
-        # Converter dados para formato de lista
         rows_to_add = []
         for _, row in new_data.iterrows():
             rows_to_add.append([
@@ -140,85 +117,76 @@ def append_data_to_sheets(df):
                 float(row['Total'])
             ])
         
-        # Adicionar dados à planilha
         worksheet.append_rows(rows_to_add)
-        
-        st.success(f"✅ {len(rows_to_add)} novos registros adicionados à aba '{WORKSHEET_NAME}'")
         return True
-        
-    except Exception as e:
-        st.error(f'❌ Erro ao adicionar dados ao Google Sheets: {str(e)}')
+    except Exception:
         return False
 
-# --- Funções de Processamento de Dados ---
-def process_trading_data(df):
-    """Processa os dados de trading do CSV - cabeçalho na linha 5, dados a partir da linha 6."""
+# --- Funções de Processamento ---
+def detect_asset_cost(df):
+    """Detecta o custo baseado nos dois primeiros caracteres da coluna ativo."""
+    custo_por_contrato = st.session_state.custo_wdo
+    asset_detected = "WDO (padrão)"
+    
+    for col in df.columns:
+        if any(word in col.lower() for word in ['ativo', 'asset', 'symbol']):
+            if not df[col].empty:
+                first_asset = str(df[col].dropna().iloc[0]).upper().strip()
+                
+                if len(first_asset) >= 2:
+                    first_two_chars = first_asset[:2]
+                    
+                    if first_two_chars == 'WD':
+                        custo_por_contrato = st.session_state.custo_wdo
+                        asset_detected = f"WD* ({first_asset})"
+                    elif first_two_chars == 'WI':
+                        custo_por_contrato = st.session_state.custo_win
+                        asset_detected = f"WI* ({first_asset})"
+                    else:
+                        custo_por_contrato = st.session_state.custo_wdo
+                        asset_detected = f"Outros ({first_asset})"
+                break
+    
+    return custo_por_contrato, asset_detected
+
+def process_trading_data(df, filename=None):
+    """Processa os dados de trading do CSV."""
     try:
         df = df.copy()
         
         if df.empty:
-            st.error("❌ Arquivo CSV vazio")
             return pd.DataFrame()
         
-        # Limpar nomes das colunas
         df.columns = df.columns.str.strip()
         
-        # Debug: mostrar as colunas encontradas
-        st.write("🔍 Colunas encontradas no CSV:", list(df.columns))
+        # Detectar custo
+        custo_por_contrato, asset_info = detect_asset_cost(df)
         
-        # Procurar pela coluna de Data
-        date_col = None
-        for col in df.columns:
-            if any(word in col.lower() for word in ['abertura', 'fechamento', 'data', 'date']):
-                date_col = col
-                break
-        
-        if date_col is None:
-            st.error(f"❌ Coluna de data não encontrada. Colunas disponíveis: {list(df.columns)}")
-            return pd.DataFrame()
-        
-        # Procurar pela coluna Total
+        # Procurar coluna Total
         total_col = None
         for col in df.columns:
-            if any(word in col.lower() for word in ['total', 'resultado', 'valor']):
+            if any(word in col.lower() for word in ['total', 'resultado', 'valor', 'saldo']):
                 total_col = col
                 break
         
         if total_col is None:
-            st.error(f"❌ Coluna de total não encontrada. Colunas disponíveis: {list(df.columns)}")
             return pd.DataFrame()
         
-        st.success(f"✅ Usando coluna de data: '{date_col}' e coluna de total: '{total_col}'")
+        # Procurar colunas de quantidade
+        qtd_compra_col = None
+        qtd_venda_col = None
         
-        # Filtrar linhas válidas
-        df = df[df[date_col].notna() & (df[date_col] != '') & (df[date_col] != 'nan')]
+        for col in df.columns:
+            if any(word in col.lower() for word in ['qtd compra', 'quantidade compra', 'qtd_compra']):
+                qtd_compra_col = col
+            elif any(word in col.lower() for word in ['qtd venda', 'quantidade venda', 'qtd_venda']):
+                qtd_venda_col = col
+        
+        df = df[df[total_col].notna() & (df[total_col] != '') & (df[total_col] != 'nan')]
         
         if df.empty:
-            st.error("❌ Nenhuma linha com data válida encontrada")
             return pd.DataFrame()
         
-        # Converter Data para datetime
-        def extract_date(date_str):
-            try:
-                if pd.isna(date_str) or date_str == '' or str(date_str).lower() == 'nan':
-                    return pd.NaT
-                
-                if isinstance(date_str, str):
-                    date_part = date_str.split(' ')[0]
-                    for fmt in ['%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%m/%d/%Y']:
-                        try:
-                            return pd.to_datetime(date_part, format=fmt)
-                        except:
-                            continue
-                    return pd.to_datetime(date_part, errors='coerce')
-                else:
-                    return pd.to_datetime(date_str, errors='coerce')
-            except:
-                return pd.NaT
-        
-        df['Data'] = df[date_col].apply(extract_date)
-        
-        # Converter Total para numérico
         def convert_total(value):
             try:
                 if pd.isna(value) or value == '' or str(value).lower() == 'nan':
@@ -233,43 +201,105 @@ def process_trading_data(df):
             except:
                 return 0
         
+        def convert_quantity(value):
+            try:
+                if pd.isna(value) or value == '' or str(value).lower() == 'nan':
+                    return 0
+                return int(float(str(value).strip()))
+            except:
+                return 0
+        
         df['Total'] = df[total_col].apply(convert_total)
         
-        # Remover linhas com datas inválidas
-        df = df.dropna(subset=['Data'])
+        # Calcular custos
+        if qtd_compra_col and qtd_venda_col:
+            df['Qtd_Compra'] = df[qtd_compra_col].apply(convert_quantity)
+            df['Qtd_Venda'] = df[qtd_venda_col].apply(convert_quantity)
+            df['Total_Contratos'] = df['Qtd_Compra'] + df['Qtd_Venda']
+        elif qtd_compra_col:
+            df['Qtd_Compra'] = df[qtd_compra_col].apply(convert_quantity)
+            df['Total_Contratos'] = df['Qtd_Compra'] * 2
+        elif qtd_venda_col:
+            df['Qtd_Venda'] = df[qtd_venda_col].apply(convert_quantity)
+            df['Total_Contratos'] = df['Qtd_Venda'] * 2
+        else:
+            df['Total_Contratos'] = 2
+        
+        df['Custo_Operacao'] = df['Total_Contratos'] * custo_por_contrato
+        df['Total_Bruto'] = df['Total']
+        df['Total'] = df['Total_Bruto'] - df['Custo_Operacao']
+        
+        df = df[df['Total_Contratos'] > 0]
         
         if df.empty:
-            st.error("❌ Nenhuma linha com data válida após conversão")
             return pd.DataFrame()
         
-        # Preview dos dados processados
-        st.write("📊 Preview dos dados processados:")
-        preview_df = df[['Data', 'Total']].head()
-        preview_df['Data'] = preview_df['Data'].dt.strftime('%d/%m/%Y')
-        st.dataframe(preview_df)
+        # Criar data automaticamente
+        data_arquivo = None
+        if filename:
+            try:
+                patterns = [
+                    r'(\d{1,2})(\w{3})(\d{2})',
+                    r'(\d{1,2})-(\d{1,2})-(\d{2,4})',
+                    r'(\d{1,2})(\d{2})(\d{2,4})',
+                    r'(\d{4})-(\d{1,2})-(\d{1,2})',
+                ]
+                
+                meses = {
+                    'jan': '01', 'fev': '02', 'mar': '03', 'abr': '04',
+                    'mai': '05', 'jun': '06', 'jul': '07', 'ago': '08',
+                    'set': '09', 'out': '10', 'nov': '11', 'dez': '12'
+                }
+                
+                filename_lower = filename.lower()
+                
+                for pattern in patterns:
+                    match = re.search(pattern, filename_lower)
+                    if match:
+                        if any(mes in filename_lower for mes in meses.keys()):
+                            dia, mes_abr, ano = match.groups()
+                            mes = meses.get(mes_abr, '06')
+                            ano = f"20{ano}" if len(ano) == 2 else ano
+                            data_arquivo = pd.to_datetime(f"{dia}/{mes}/{ano}", format='%d/%m/%Y')
+                        else:
+                            if len(match.groups()) == 3:
+                                p1, p2, p3 = match.groups()
+                                try:
+                                    if len(p3) == 4:
+                                        data_arquivo = pd.to_datetime(f"{p1}/{p2}/{p3}", format='%d/%m/%Y')
+                                    else:
+                                        ano_completo = f"20{p3}"
+                                        data_arquivo = pd.to_datetime(f"{p1}/{p2}/{ano_completo}", format='%d/%m/%Y')
+                                except:
+                                    continue
+                        break
+            except Exception:
+                pass
         
-        # Agrupar por data
+        if data_arquivo is None:
+            data_arquivo = pd.Timestamp.now().normalize()
+        
+        df['Data'] = data_arquivo
+        
         daily_data = df.groupby('Data').agg({
-            'Total': 'sum'
+            'Total_Bruto': 'sum',
+            'Custo_Operacao': 'sum',
+            'Total': 'sum',
+            'Total_Contratos': 'sum'
         }).reset_index()
         
-        st.success(f"✅ Dados processados: {len(daily_data)} dias únicos encontrados")
+        return daily_data[['Data', 'Total']], asset_info
         
-        return daily_data
-        
-    except Exception as e:
-        st.error(f"❌ Erro ao processar dados: {str(e)}")
-        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame(), "Erro"
 
 # --- Funções de Visualização ---
 def create_statistics_container(df):
     """Cria container com estatísticas detalhadas."""
     if df.empty:
-        st.warning("⚠️ Sem dados para exibir estatísticas")
         return
     
     try:
-        # Calcular estatísticas
         valor_acumulado = df['Total'].sum()
         total_ganho = df[df['Total'] > 0]['Total'].sum()
         total_perda = df[df['Total'] < 0]['Total'].sum()
@@ -277,18 +307,14 @@ def create_statistics_container(df):
         dias_negativos = len(df[df['Total'] < 0])
         total_dias = len(df)
         
-        # Calcular percentuais
         perc_dias_positivos = (dias_positivos / total_dias * 100) if total_dias > 0 else 0
         perc_dias_negativos = (dias_negativos / total_dias * 100) if total_dias > 0 else 0
         
-        # Maior ganho e maior perda
         maior_ganho = df['Total'].max() if not df.empty else 0
         maior_perda = df['Total'].min() if not df.empty else 0
         
-        # Média diária
         media_diaria = df[df['Total'] != 0]['Total'].mean() if len(df[df['Total'] != 0]) > 0 else 0
         
-        # Container estilizado
         st.markdown("""
         <div style="background: rgba(44, 62, 80, 0.3); 
                     backdrop-filter: blur(20px); padding: 2rem; border-radius: 15px; margin: 1rem 0; 
@@ -315,8 +341,8 @@ def create_statistics_container(df):
             st.metric("❌ Dias Negativos", f"{dias_negativos} ({perc_dias_negativos:.1f}%)")
             st.metric("💥 Maior Perda", f"R$ {maior_perda:,.2f}")
             
-    except Exception as e:
-        st.error(f"❌ Erro ao criar estatísticas: {str(e)}")
+    except Exception:
+        pass
 
 def create_area_chart(df):
     """Cria gráfico de área com evolução acumulada."""
@@ -350,9 +376,7 @@ def create_area_chart(df):
                 alt.Tooltip('Acumulado:Q', format=',.2f', title='Acumulado (R$)')
             ]
         ).properties(height=500, title='Evolução Acumulada dos Resultados')
-        
-    except Exception as e:
-        st.error(f"❌ Erro ao criar gráfico de área: {str(e)}")
+    except Exception:
         return None
 
 def create_daily_histogram(df):
@@ -378,9 +402,7 @@ def create_daily_histogram(df):
                 alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
             ]
         ).properties(height=500, title='Resultado Diário')
-        
-    except Exception as e:
-        st.error(f"❌ Erro ao criar histograma: {str(e)}")
+    except Exception:
         return None
 
 def create_radial_chart(df):
@@ -420,9 +442,7 @@ def create_radial_chart(df):
         )
 
         return (c1 + c2).properties(height=500, title='Total por Mês')
-        
-    except Exception as e:
-        st.error(f"❌ Erro ao criar gráfico radial: {str(e)}")
+    except Exception:
         return None
 
 def create_trading_heatmap(df):
@@ -486,20 +506,18 @@ def create_trading_heatmap(df):
                 alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
             ]
         ).properties(height=500, title=f'Atividade de Trading - {current_year}')
-        
-    except Exception as e:
-        st.error(f"❌ Erro ao criar heatmap: {str(e)}")
+    except Exception:
         return None
 
 # --- Função Principal ---
 def main():
-    st.title("📈 Trading Activity Dashboard")
-    st.markdown("**Sistema integrado:** Upload CSV → Google Sheets (aba dados) → Visualizações")
+    initialize_costs()
     
-    # CSS para background com partículas animadas
+    st.title("📈 Trading Activity Dashboard")
+    
+    # CSS para background com partículas
     st.markdown("""
     <style>
-    /* Background principal com gradiente radial */
     .stApp {
         background: radial-gradient(circle at 30% 30%, #2c3e50, #000);
         background-attachment: fixed;
@@ -510,9 +528,8 @@ def main():
         font-family: Arial, sans-serif;
     }
     
-    /* Container de partículas */
     .particles {
-        position: absolute;
+        position: fixed;
         width: 100%;
         height: 100%;
         overflow: hidden;
@@ -522,7 +539,6 @@ def main():
         z-index: -1;
     }
     
-    /* Partículas individuais */
     .particle {
         position: absolute;
         border-radius: 50%;
@@ -530,7 +546,6 @@ def main():
         animation: float 20s infinite linear;
     }
     
-    /* Animação de flutuação */
     @keyframes float {
         0% {
             transform: translateY(100vh) scale(0.5);
@@ -545,7 +560,6 @@ def main():
         }
     }
     
-    /* Títulos e textos */
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
@@ -556,7 +570,6 @@ def main():
         text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
     }
     
-    /* Botões */
     .stButton > button {
         background: linear-gradient(45deg, #3498db, #74b9ff);
         color: white;
@@ -571,22 +584,19 @@ def main():
         transform: translateY(-2px);
     }
     
-    /* Upload area */
     .stFileUploader > div {
         background-color: rgba(44, 62, 80, 0.3);
         border: 2px dashed rgba(255, 255, 255, 0.5);
         backdrop-filter: blur(10px);
     }
     
-    /* Info boxes */
-    .stInfo, .stSuccess, .stWarning, .stError {
-        background-color: rgba(44, 62, 80, 0.3);
-        backdrop-filter: blur(10px);
-        border-left: 4px solid #3498db;
+    .stNumberInput > div > div > input {
+        background-color: rgba(44, 62, 80, 0.5);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.3);
     }
     </style>
     
-    <!-- Partículas animadas -->
     <div class="particles">
         <div class="particle" style="width: 10px; height: 10px; left: 20%; animation-delay: 0s;"></div>
         <div class="particle" style="width: 8px; height: 8px; left: 40%; animation-delay: 5s;"></div>
@@ -611,18 +621,36 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Carregar dados automaticamente
-    with st.spinner("Carregando dados da aba 'dados' do Google Sheets..."):
-        sheets_data = load_data_from_sheets()
+    # Configuração de custos
+    col1, col2 = st.columns(2)
     
-    # Seção de upload
-    st.subheader("📤 Alimentar Base de Dados")
-    st.info("💡 O arquivo CSV será processado e enviado para a aba 'dados' da planilha Google Sheets")
+    with col1:
+        st.session_state.custo_wdo = st.number_input(
+            "💰 Custo WDO (R$)",
+            min_value=0.01,
+            max_value=10.00,
+            value=st.session_state.custo_wdo,
+            step=0.01,
+            format="%.2f"
+        )
     
+    with col2:
+        st.session_state.custo_win = st.number_input(
+            "💰 Custo WIN (R$)",
+            min_value=0.01,
+            max_value=10.00,
+            value=st.session_state.custo_win,
+            step=0.01,
+            format="%.2f"
+        )
+    
+    # Carregar dados
+    sheets_data = load_data_from_sheets()
+    
+    # Upload
     uploaded_file = st.file_uploader(
-        "Faça upload do CSV para atualizar a aba 'dados' do Google Sheets",
-        type=['csv'],
-        help="Este arquivo será processado e enviado para a aba 'dados' da planilha."
+        "📤 Upload CSV",
+        type=['csv']
     )
     
     # Processar upload
@@ -630,6 +658,7 @@ def main():
         try:
             encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
             df = None
+            filename = uploaded_file.name
             
             for encoding in encodings:
                 try:
@@ -641,61 +670,44 @@ def main():
                         skiprows=4,
                         on_bad_lines='skip'
                     )
-                    st.success(f"✅ Arquivo carregado com encoding: {encoding}")
                     break
-                except (UnicodeDecodeError, pd.errors.ParserError) as e:
-                    st.warning(f"⚠️ Tentativa com encoding {encoding} falhou: {str(e)}")
+                except:
                     continue
             
-            if df is None:
-                st.error("❌ Não foi possível ler o arquivo")
-                return
-            
-            st.write(f"📁 Arquivo carregado: {len(df)} linhas, {len(df.columns)} colunas")
-            
-            with st.expander("👀 Preview do arquivo CSV bruto", expanded=False):
-                st.dataframe(df.head(10))
-            
-            processed_df = process_trading_data(df)
-            
-            if not processed_df.empty:
-                with st.spinner("Adicionando dados à aba 'dados' do Google Sheets..."):
+            if df is not None:
+                processed_result = process_trading_data(df, filename)
+                
+                if isinstance(processed_result, tuple):
+                    processed_df, asset_info = processed_result
+                else:
+                    processed_df = processed_result
+                    asset_info = "Processado"
+                
+                if not processed_df.empty:
                     if append_data_to_sheets(processed_df):
-                        st.success("✅ Dados adicionados com sucesso! Recarregando visualizações...")
-                        time.sleep(2)  # Aguardar sincronização
-                        st.cache_data.clear()  # Limpar cache
+                        st.success(f"✅ Dados adicionados - {asset_info}")
+                        time.sleep(1)
+                        st.cache_data.clear()
                         sheets_data = load_data_from_sheets()
-                    else:
-                        st.error("❌ Erro ao adicionar dados ao Google Sheets")
-            else:
-                st.error("❌ Nenhum dado válido processado")
-                        
-        except Exception as e:
-            st.error(f"❌ Erro ao processar arquivo: {str(e)}")
+        except Exception:
+            pass
     
-    # Exibir visualizações
+    # Exibir dashboard
     if sheets_data is not None and not sheets_data.empty:
-        st.markdown("---")
-        st.subheader("📊 Dashboard - Dados da Aba 'dados'")
-        st.info(f"📋 Exibindo dados da planilha Google Sheets (aba 'dados') - {len(sheets_data)} registros")
-        
         # Estatísticas
         create_statistics_container(sheets_data)
         
         # Gráfico de área
-        st.subheader("📈 Evolução Acumulada")
         area_chart = create_area_chart(sheets_data)
         if area_chart is not None:
             st.altair_chart(area_chart, use_container_width=True)
         
         # Heatmap
-        st.subheader("🔥 Heatmap de Atividade")
         heatmap_chart = create_trading_heatmap(sheets_data)
         if heatmap_chart is not None:
             st.altair_chart(heatmap_chart, use_container_width=True)
         
         # Gráficos adicionais
-        st.subheader("📊 Análise Detalhada")
         histogram_chart = create_daily_histogram(sheets_data)
         radial_chart = create_radial_chart(sheets_data)
 
@@ -707,28 +719,6 @@ def main():
             
             with col2:
                 st.altair_chart(radial_chart, use_container_width=True)
-        
-        # Dados da planilha
-        with st.expander("📋 Dados da Aba 'dados' - Google Sheets", expanded=False):
-            display_df = sheets_data.copy()
-            display_df['Data'] = display_df['Data'].dt.strftime('%d/%m/%Y')
-            display_df['Total'] = display_df['Total'].apply(lambda x: f"R$ {x:,.2f}")
-            st.dataframe(display_df, use_container_width=True)
-            st.caption(f"Fonte: Google Sheets - Aba 'dados' | Total de registros: {len(display_df)}")
-    
-    else:
-        st.info("📋 Nenhum dado encontrado na aba 'dados' do Google Sheets. Faça upload de um arquivo CSV para começar.")
-        
-        # Exemplo do formato esperado
-        st.subheader("📋 Formato Esperado do CSV")
-        example_data = {
-            'Data': ['16/06/2025', '17/06/2025', '18/06/2025'],
-            'Ativo': ['WDON25', 'WDON25', 'WDON25'],
-            'Lado': ['V', 'C', 'V'],
-            'Total': ['80,00', '-55,00', '125,00']
-        }
-        st.dataframe(pd.DataFrame(example_data))
-        st.caption("💡 Os dados processados serão enviados para a aba 'dados' da planilha Google Sheets")
 
 if __name__ == "__main__":
     main()
