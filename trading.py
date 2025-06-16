@@ -326,17 +326,17 @@ def copy_csv_to_sheets(uploaded_file, filename=None):
 
 # --- PROCESSAR DADOS PARA DASHBOARD ---
 def process_trading_data(df):
-    """Processa os dados de trading do CSV."""
+    """Processa os dados de trading do CSV baseado na estrutura da tabela fornecida."""
     # Limpar e processar as colunas
     df = df.copy()
     
     # Limpar nomes das colunas (remover espaços extras)
     df.columns = df.columns.str.strip()
     
-    # Procurar pela coluna de Data (pode ser Abertura ou Fechamento)
+    # Procurar pela coluna de Data (Abertura ou Fechamento)
     date_col = None
     for col in df.columns:
-        if any(word in col for word in ['Abertura', 'Fechamento', 'Data', 'data']):
+        if any(word in col for word in ['Abertura', 'Fechamento', 'Data']):
             date_col = col
             break
     
@@ -371,18 +371,26 @@ def process_trading_data(df):
     df['Data'] = df[date_col].apply(extract_date)
     
     # Converter Total para numérico
-    if df[total_col].dtype == 'object':
-        # Remover espaços, substituir vírgulas por pontos
-        df['Total'] = df[total_col].astype(str).str.strip()
-        df['Total'] = df['Total'].str.replace(',', '.')
-        # Remover caracteres não numéricos exceto - e .
-        df['Total'] = df['Total'].str.replace(r'[^\d\-\.]', '', regex=True)
-        df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
-    else:
-        df['Total'] = pd.to_numeric(df[total_col], errors='coerce')
+    def convert_total(value):
+        try:
+            if pd.isna(value) or value == '':
+                return 0
+            
+            # Converter para string e limpar
+            value_str = str(value).strip()
+            
+            # Remover caracteres não numéricos exceto - e .
+            value_str = value_str.replace(',', '.')
+            value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
+            
+            return float(value_str) if value_str else 0
+        except:
+            return 0
+    
+    df['Total'] = df[total_col].apply(convert_total)
     
     # Remover linhas com datas ou totais inválidos
-    df = df.dropna(subset=['Data', 'Total'])
+    df = df.dropna(subset=['Data'])
     
     # Agrupar por data para somar os resultados do dia
     daily_data = df.groupby('Data').agg({
@@ -531,6 +539,8 @@ def create_statistics_container(df):
         maior_perda = df['Total'].min() if not df.empty else 0
         
         media_diaria = df[df['Total'] != 0]['Total'].mean() if len(df[df['Total'] != 0]) > 0 else 0
+        
+        st.subheader("📊 Estatísticas de Trading")
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -810,153 +820,6 @@ def create_trading_heatmap(df):
 def main():
     initialize_session_state()
     
-    # CSS com partículas douradas
-    st.markdown("""
-    <style>
-    .stApp {
-        position: relative !important;
-        overflow-x: hidden !important;
-        min-height: 100vh !important;
-    }
-    
-    /* Container de partículas */
-    .particles {
-        position: fixed !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        overflow: hidden !important;
-        top: 0 !important;
-        left: 0 !important;
-        pointer-events: none !important;
-        z-index: -1 !important;
-    }
-    
-    /* Partículas individuais */
-    .particle {
-        position: absolute !important;
-        border-radius: 50% !important;
-        background: radial-gradient(circle, #ffd700 0%, #ffaa00 50%, transparent 100%) !important;
-        animation: float 20s infinite linear !important;
-        display: block !important;
-        visibility: visible !important;
-        box-shadow: 0 0 6px #ffd700, 0 0 12px #ffd700 !important;
-    }
-    
-    /* Animação das partículas subindo */
-    @keyframes float {
-        0% {
-            transform: translateY(100vh) scale(0.5) !important;
-            opacity: 0 !important;
-        }
-        10% {
-            opacity: 0.8 !important;
-        }
-        50% {
-            opacity: 1 !important;
-        }
-        90% {
-            opacity: 0.6 !important;
-        }
-        100% {
-            transform: translateY(-10vh) scale(1.2) !important;
-            opacity: 0 !important;
-        }
-    }
-    
-    .stButton > button {
-        background: linear-gradient(45deg, #3498db, #74b9ff) !important;
-        color: white !important;
-        border: none !important;
-        box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4) !important;
-        transition: all 0.3s ease !important;
-        position: relative !important;
-        z-index: 4 !important;
-    }
-    
-    .stButton > button:hover {
-        background: linear-gradient(45deg, #74b9ff, #0984e3) !important;
-        box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6) !important;
-        transform: translateY(-2px) !important;
-    }
-    
-    /* Garantir que todo conteúdo fique acima das partículas */
-    .main .block-container,
-    .stApp > div,
-    .stMarkdown,
-    .metric-container,
-    .vega-embed,
-    .stDataFrame,
-    .stSelectbox,
-    .stNumberInput,
-    .stFileUploader,
-    .stButton,
-    .stMetric,
-    .stColumns {
-        position: relative !important;
-        z-index: 1 !important;
-        background: transparent !important;
-    }
-    
-    /* Sidebar */
-    .css-1d391kg {
-        background-color: rgba(248, 249, 251, 0.95) !important;
-        backdrop-filter: blur(10px) !important;
-        position: relative !important;
-        z-index: 10 !important;
-    }
-    </style>
-    
-    <!-- HTML para partículas douradas -->
-    <div class="particles" id="particles-container">
-        <div class="particle" style="width: 8px; height: 8px; left: 15%; animation-delay: 0s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 35%; animation-delay: 3s;"></div>
-        <div class="particle" style="width: 10px; height: 10px; left: 55%; animation-delay: 6s;"></div>
-        <div class="particle" style="width: 4px; height: 4px; left: 75%; animation-delay: 9s;"></div>
-        <div class="particle" style="width: 12px; height: 12px; left: 25%; animation-delay: 12s;"></div>
-        <div class="particle" style="width: 7px; height: 7px; left: 65%; animation-delay: 15s;"></div>
-        <div class="particle" style="width: 9px; height: 9px; left: 45%; animation-delay: 18s;"></div>
-        <div class="particle" style="width: 5px; height: 5px; left: 85%; animation-delay: 2s;"></div>
-        <div class="particle" style="width: 11px; height: 11px; left: 5%; animation-delay: 5s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 95%; animation-delay: 8s;"></div>
-        <div class="particle" style="width: 8px; height: 8px; left: 20%; animation-delay: 11s;"></div>
-        <div class="particle" style="width: 10px; height: 10px; left: 80%; animation-delay: 14s;"></div>
-        <div class="particle" style="width: 4px; height: 4px; left: 40%; animation-delay: 17s;"></div>
-        <div class="particle" style="width: 9px; height: 9px; left: 60%; animation-delay: 1s;"></div>
-        <div class="particle" style="width: 7px; height: 7px; left: 30%; animation-delay: 4s;"></div>
-        <div class="particle" style="width: 12px; height: 12px; left: 70%; animation-delay: 7s;"></div>
-        <div class="particle" style="width: 5px; height: 5px; left: 10%; animation-delay: 10s;"></div>
-        <div class="particle" style="width: 8px; height: 8px; left: 90%; animation-delay: 13s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 50%; animation-delay: 16s;"></div>
-        <div class="particle" style="width: 11px; height: 11px; left: 12%; animation-delay: 19s;"></div>
-    </div>
-    
-    <script>
-    // JavaScript para criar partículas adicionais
-    function createAdditionalParticles() {
-        const container = document.getElementById('particles-container');
-        if (container) {
-            for (let i = 0; i < 25; i++) {
-                const particle = document.createElement('div');
-                particle.className = 'particle';
-                
-                const size = Math.random() * 8 + 4;
-                particle.style.width = size + 'px';
-                particle.style.height = size + 'px';
-                particle.style.left = Math.random() * 100 + '%';
-                particle.style.animationDelay = Math.random() * 20 + 's';
-                particle.style.display = 'block';
-                particle.style.visibility = 'visible';
-                
-                container.appendChild(particle);
-            }
-        }
-    }
-    
-    document.addEventListener('DOMContentLoaded', createAdditionalParticles);
-    setTimeout(createAdditionalParticles, 1000);
-    </script>
-    """, unsafe_allow_html=True)
-    
     st.title("📈 Trading Activity Dashboard")
     
     # SIDEBAR COM FILTROS
@@ -1010,7 +873,8 @@ def main():
         
         uploaded_file = st.file_uploader(
             "Upload CSV",
-            type=['csv']
+            type=['csv'],
+            help="Faça upload do arquivo CSV com os dados de trading."
         )
     
     # PROCESSAMENTO DO UPLOAD
@@ -1107,19 +971,31 @@ def main():
             display_df['Total'] = display_df['Total'].apply(lambda x: f"R$ {x:,.2f}")
             st.dataframe(display_df, use_container_width=True)
             
+        # Mostrar legenda explicativa
+        st.info("""
+        **Como interpretar o heatmap:**
+        - Cada quadrado representa um dia
+        - Cores mais escuras = resultados maiores (positivos ou negativos)
+        - Cores mais claras = resultados menores
+        - Cinza claro = sem atividade de trading
+        - Passe o mouse sobre os quadrados para ver detalhes
+        """)
+            
     else:
         st.info("📋 Nenhum dado encontrado. Faça upload de um arquivo CSV para começar.")
         
-        # Mostrar exemplo do formato esperado
+        # Mostrar exemplo do formato esperado baseado na tabela fornecida
         st.subheader("Formato esperado do arquivo")
         example_data = {
-            'Subconta': ['12345', '12345', '12345'],
+            'Subconta': ['70568938', '70568938', '70568938'],
             'Ativo': ['WDON25', 'WDON25', 'WDON25'],
-            'Abertura': ['16/06/2025 10:30', '16/06/2025 14:15', '16/06/2025 15:45'],
-            'Total': ['80,00', '-55,00', '-405,00']
+            'Abertura': ['16/06/2025 09:00', '16/06/2025 09:18', '16/06/2025 09:49'],
+            'Fechamento': ['16/06/2025 09:17', '16/06/2025 09:49', '16/06/2025 10:11'],
+            'Lado': ['V', 'C', 'V'],
+            'Total': ['80', '-135', '-405']
         }
         st.dataframe(pd.DataFrame(example_data))
-        st.caption("O arquivo deve conter pelo menos as colunas de data (Abertura/Fechamento) e 'Total'. Outras colunas são opcionais.")
+        st.caption("O arquivo deve conter pelo menos as colunas de data (Abertura/Fechamento) e 'Total'. Estrutura baseada na tabela fornecida.")
 
 if __name__ == "__main__":
     main()
