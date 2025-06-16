@@ -78,7 +78,7 @@ def load_data_from_sheets():
         return None
 
 def copy_full_csv_to_sheets(df_original, filename=None):
-    """Copia todos os dados do CSV original para uma aba específica no Google Sheets."""
+    """Copia todos os dados do CSV original para uma aba específica mantendo a sequência exata."""
     try:
         gc = get_gspread_client()
         if gc is None:
@@ -86,20 +86,57 @@ def copy_full_csv_to_sheets(df_original, filename=None):
         
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
         
+        # Nome da aba baseado no arquivo ou data atual
         if filename:
             sheet_name = filename.replace('.csv', '').replace('.CSV', '')[:30]
         else:
             sheet_name = f"CSV_{datetime.now().strftime('%d%m%Y_%H%M')}"
         
+        # Verificar se a aba já existe, se não, criar
         try:
             worksheet = spreadsheet.worksheet(sheet_name)
+            # Se existe, limpar conteúdo
             worksheet.clear()
         except:
-            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=26)
+            # Se não existe, criar nova aba com tamanho adequado
+            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
         
-        data_to_insert = [df_original.columns.tolist()]
+        # Sequência exata das colunas conforme solicitado
+        expected_columns = [
+            'Subconta', 'Ativo', 'Abertura', 'Fechamento', 'Tempo Operação',
+            'Qtd Compra', 'Qtd Venda', 'Lado', 'Preço Compra', 'Preço Venda',
+            'Preço de Mercado', 'Res. Intervalo', 'Res. Intervalo (%)',
+            'Número Operação', 'Res. Operação', 'Res. Operação (%)', 'TET', 'Total'
+        ]
         
-        for _, row in df_original.iterrows():
+        # Preparar DataFrame mantendo a ordem exata
+        df_to_copy = df_original.copy()
+        
+        # Reordenar colunas para manter a sequência exata
+        final_columns = []
+        
+        # Primeiro, adicionar colunas na ordem esperada (se existirem)
+        for col in expected_columns:
+            if col in df_to_copy.columns:
+                final_columns.append(col)
+        
+        # Depois, adicionar qualquer coluna adicional que não estava na lista
+        for col in df_to_copy.columns:
+            if col not in final_columns:
+                final_columns.append(col)
+        
+        # Reordenar DataFrame
+        df_to_copy = df_to_copy[final_columns]
+        
+        # Preparar dados para inserção
+        data_to_insert = []
+        
+        # Cabeçalho
+        header_row = df_to_copy.columns.tolist()
+        data_to_insert.append(header_row)
+        
+        # Dados
+        for _, row in df_to_copy.iterrows():
             row_data = []
             for value in row:
                 if pd.isna(value):
@@ -108,7 +145,25 @@ def copy_full_csv_to_sheets(df_original, filename=None):
                     row_data.append(str(value))
             data_to_insert.append(row_data)
         
-        worksheet.update('A1', data_to_insert)
+        # Inserir dados na planilha
+        if data_to_insert:
+            num_rows = len(data_to_insert)
+            num_cols = len(data_to_insert[0])
+            
+            # Converter número para letra da coluna
+            def num_to_col_letter(num):
+                result = ""
+                while num > 0:
+                    num -= 1
+                    result = chr(65 + (num % 26)) + result
+                    num //= 26
+                return result
+            
+            end_col = num_to_col_letter(num_cols)
+            range_name = f'A1:{end_col}{num_rows}'
+            
+            # Atualizar a planilha com todos os dados
+            worksheet.update(range_name, data_to_insert, value_input_option='RAW')
         
         return True, sheet_name
         
@@ -610,7 +665,7 @@ def create_trading_heatmap(df):
 def main():
     initialize_session_state()
     
-    # CSS CORRIGIDO para background com partículas que REALMENTE aparecem
+    # CSS CORRIGIDO para background com partículas posicionadas corretamente
     st.markdown("""
     <style>
     /* Background principal */
@@ -624,7 +679,7 @@ def main():
         font-family: Arial, sans-serif !important;
     }
     
-    /* Container de partículas - FORÇADO para aparecer */
+    /* Container de partículas - POSICIONADO ENTRE BACKGROUND E CONTEÚDO */
     .particles {
         position: fixed !important;
         width: 100vw !important;
@@ -633,33 +688,33 @@ def main():
         top: 0 !important;
         left: 0 !important;
         pointer-events: none !important;
-        z-index: 1 !important;
+        z-index: -1 !important;  /* ABAIXO de todo conteúdo, mas ACIMA do background */
     }
     
-    /* Partículas individuais - FORÇADAS para aparecer */
+    /* Partículas individuais */
     .particle {
         position: absolute !important;
         border-radius: 50% !important;
-        background: rgba(255, 255, 255, 0.9) !important;
+        background: rgba(255, 255, 255, 0.6) !important;  /* Opacidade reduzida para não interferir */
         animation: float 20s infinite linear !important;
         display: block !important;
         visibility: visible !important;
     }
     
-    /* Animação CORRIGIDA - partículas sobem da parte inferior */
+    /* Animação das partículas */
     @keyframes float {
         0% {
             transform: translateY(100vh) scale(0.5) !important;
             opacity: 0 !important;
         }
         10% {
-            opacity: 1 !important;
+            opacity: 0.6 !important;
         }
         50% {
-            opacity: 1 !important;
+            opacity: 0.8 !important;
         }
         90% {
-            opacity: 0.5 !important;
+            opacity: 0.3 !important;
         }
         100% {
             transform: translateY(-10vh) scale(1.2) !important;
@@ -667,30 +722,79 @@ def main():
         }
     }
     
+    /* GARANTIR que todo conteúdo fique ACIMA das partículas */
+    .main .block-container,
+    .stApp > div,
+    .stMarkdown,
+    .metric-container,
+    .vega-embed,
+    .stDataFrame,
+    .stSelectbox,
+    .stNumberInput,
+    .stFileUploader,
+    .stButton,
+    .stMetric,
+    .stColumns {
+        position: relative !important;
+        z-index: 1 !important;  /* ACIMA das partículas */
+        background: transparent !important;
+    }
+    
+    /* Containers específicos com z-index elevado */
+    div[data-testid="stMetricValue"],
+    div[data-testid="stMetricLabel"],
+    div[data-testid="metric-container"] {
+        position: relative !important;
+        z-index: 2 !important;
+    }
+    
+    /* Sidebar acima das partículas */
+    .css-1d391kg {
+        background-color: rgba(44, 62, 80, 0.9) !important;
+        backdrop-filter: blur(10px) !important;
+        position: relative !important;
+        z-index: 10 !important;  /* Sidebar sempre no topo */
+    }
+    
+    /* Gráficos e visualizações acima das partículas */
+    .vega-embed,
+    .vega-embed canvas,
+    .vega-embed svg {
+        background: transparent !important;
+        position: relative !important;
+        z-index: 5 !important;  /* Gráficos bem acima das partículas */
+    }
+    
+    /* Containers de estatísticas acima das partículas */
+    div[style*="backdrop-filter: blur(20px)"] {
+        position: relative !important;
+        z-index: 3 !important;
+    }
+    
     /* Títulos e textos */
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.8) !important;
+        position: relative !important;
+        z-index: 2 !important;
     }
     
     .stMarkdown, .stText, p, span {
         color: #e0e0e0 !important;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.8) !important;
+        position: relative !important;
+        z-index: 2 !important;
     }
     
-    /* Sidebar */
-    .css-1d391kg {
-        background-color: rgba(44, 62, 80, 0.9) !important;
-        backdrop-filter: blur(10px) !important;
-    }
-    
-    /* Botões */
+    /* Botões acima das partículas */
     .stButton > button {
         background: linear-gradient(45deg, #3498db, #74b9ff) !important;
         color: white !important;
         border: none !important;
         box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4) !important;
         transition: all 0.3s ease !important;
+        position: relative !important;
+        z-index: 4 !important;
     }
     
     .stButton > button:hover {
@@ -699,38 +803,27 @@ def main():
         transform: translateY(-2px) !important;
     }
     
-    /* Upload area */
+    /* Upload area acima das partículas */
     .stFileUploader > div {
         background-color: rgba(44, 62, 80, 0.3) !important;
         border: 2px dashed rgba(255, 255, 255, 0.5) !important;
         backdrop-filter: blur(10px) !important;
+        position: relative !important;
+        z-index: 3 !important;
     }
     
-    /* Inputs */
-    .stNumberInput > div > div > input, .stSelectbox > div > div > select {
+    /* Inputs acima das partículas */
+    .stNumberInput > div > div > input,
+    .stSelectbox > div > div > select {
         background-color: rgba(44, 62, 80, 0.5) !important;
         color: white !important;
         border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    }
-    
-    /* Métricas */
-    .metric-container {
-        background: rgba(255, 255, 255, 0.1) !important;
-        backdrop-filter: blur(10px) !important;
-        border-radius: 10px !important;
-        padding: 1rem !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-    }
-    
-    /* Forçar visibilidade dos gráficos */
-    .vega-embed, .vega-embed canvas, .vega-embed svg {
-        background: transparent !important;
-        visibility: visible !important;
-        display: block !important;
+        position: relative !important;
+        z-index: 3 !important;
     }
     </style>
     
-    <!-- HTML para partículas - GARANTINDO que apareçam -->
+    <!-- HTML para partículas - GARANTINDO posicionamento correto -->
     <div class="particles" id="particles-container">
         <div class="particle" style="width: 10px; height: 10px; left: 20%; animation-delay: 0s;"></div>
         <div class="particle" style="width: 8px; height: 8px; left: 40%; animation-delay: 5s;"></div>
@@ -766,7 +859,7 @@ def main():
         if (container) {
             container.style.display = 'block';
             container.style.visibility = 'visible';
-            container.style.zIndex = '1';
+            container.style.zIndex = '-1';
             
             // Criar partículas adicionais dinamicamente
             for (let i = 0; i < 30; i++) {
@@ -862,16 +955,14 @@ def main():
         
         st.markdown("---")
         st.subheader("📤 Upload")
-    
-    # CONTEÚDO PRINCIPAL
-    st.title("📈 Trading Activity Dashboard")
-    
-    # Upload na sidebar
-    with st.sidebar:
+        
         uploaded_file = st.file_uploader(
             "Upload CSV",
             type=['csv']
         )
+    
+    # CONTEÚDO PRINCIPAL
+    st.title("📈 Trading Activity Dashboard")
     
     # Processar upload
     if uploaded_file is not None:
