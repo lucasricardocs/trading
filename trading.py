@@ -50,7 +50,8 @@ def get_gspread_client():
             ]
         )
         return gspread.authorize(credentials)
-    except Exception:
+    except Exception as e:
+        st.error(f"Erro na autenticação: {e}")
         return None
 
 @st.cache_data(ttl=60)
@@ -74,18 +75,25 @@ def load_data_from_sheets():
         df = df.dropna(subset=['Data', 'Total'])
         
         return df
-    except Exception:
+    except Exception as e:
+        st.error(f"Erro ao carregar dados: {e}")
         return None
 
-# --- PASSO 1: COLAR DADOS BRUTOS NO GOOGLE SHEETS ---
-def copy_csv_to_sheets_first(uploaded_file, filename=None):
-    """PASSO 1: Cola dados do CSV EXATAMENTE como estão no arquivo original."""
+# --- FUNÇÃO PARA COLAR DADOS DO CSV ---
+def copy_csv_to_sheets(uploaded_file, filename=None):
+    """Cola dados do CSV diretamente na planilha Google Sheets."""
     try:
+        st.info("🔄 Iniciando processo de cópia dos dados...")
+        
         gc = get_gspread_client()
         if gc is None:
+            st.error("❌ Falha na conexão com Google Sheets")
             return False, "Erro de conexão"
         
+        st.success("✅ Conectado ao Google Sheets")
+        
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        st.success("✅ Planilha encontrada")
         
         # Nome da aba baseado no arquivo
         if filename:
@@ -93,82 +101,122 @@ def copy_csv_to_sheets_first(uploaded_file, filename=None):
         else:
             sheet_name = f"CSV_{datetime.now().strftime('%d%m%Y_%H%M')}"
         
+        st.info(f"📋 Criando/acessando aba: {sheet_name}")
+        
         # Verificar se a aba já existe, se não, criar
         try:
             worksheet = spreadsheet.worksheet(sheet_name)
+            st.info("📋 Aba existente encontrada")
         except:
             worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
+            st.success(f"✅ Nova aba criada: {sheet_name}")
         
-        # LER O ARQUIVO CSV ORIGINAL DIRETAMENTE
+        # LER O ARQUIVO CSV
         uploaded_file.seek(0)
         
         # Tentar diferentes encodings
         encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
-        csv_lines = None
+        csv_content = None
+        used_encoding = None
         
         for encoding in encodings:
             try:
                 uploaded_file.seek(0)
-                content = uploaded_file.read().decode(encoding)
-                csv_lines = content.split('\n')
+                csv_content = uploaded_file.read().decode(encoding)
+                used_encoding = encoding
                 break
-            except:
+            except Exception as e:
+                st.warning(f"⚠️ Encoding {encoding} falhou: {e}")
                 continue
         
-        if csv_lines is None:
+        if csv_content is None:
+            st.error("❌ Não foi possível ler o arquivo CSV")
             return False, "Erro ao ler arquivo"
         
-        # Pegar dados a partir da linha 5 (índice 4)
+        st.success(f"✅ Arquivo lido com encoding: {used_encoding}")
+        
+        # Dividir em linhas
+        csv_lines = csv_content.split('\n')
+        st.info(f"📄 Total de linhas no arquivo: {len(csv_lines)}")
+        
+        # Verificar se tem pelo menos 5 linhas
         if len(csv_lines) < 5:
-            return False, "Arquivo não tem dados suficientes"
+            st.error("❌ Arquivo não tem dados suficientes (mínimo 5 linhas)")
+            return False, "Arquivo muito pequeno"
         
         # Linha 5 é o cabeçalho (índice 4)
         header_line = csv_lines[4].strip()
-        data_lines = csv_lines[5:]  # Dados a partir da linha 6
+        if not header_line:
+            st.error("❌ Linha 5 (cabeçalho) está vazia")
+            return False, "Cabeçalho vazio"
         
         # Processar cabeçalho
-        header_cells = [cell.strip().strip('"') for cell in header_line.split(';')]
+        header_cells = []
+        for cell in header_line.split(';'):
+            clean_cell = cell.strip().strip('"').strip()
+            header_cells.append(clean_cell)
         
-        # Processar linhas de dados - APENAS as que têm conteúdo
+        st.success(f"✅ Cabeçalho processado: {len(header_cells)} colunas")
+        st.write("📋 Colunas:", header_cells)
+        
+        # Processar dados (linhas 6 em diante)
+        data_lines = csv_lines[5:]
         data_rows = []
-        for line in data_lines:
+        
+        for i, line in enumerate(data_lines, 6):
             line = line.strip()
             if line:  # Se a linha não está vazia
-                cells = [cell.strip().strip('"') for cell in line.split(';')]
+                cells = []
+                for cell in line.split(';'):
+                    clean_cell = cell.strip().strip('"').strip()
+                    cells.append(clean_cell)
+                
                 # Verificar se a linha tem pelo menos uma célula com conteúdo
                 if any(cell for cell in cells):
-                    # Garantir que a linha tenha o mesmo número de colunas que o cabeçalho
+                    # Ajustar número de colunas
                     while len(cells) < len(header_cells):
                         cells.append('')
-                    # Se tem mais colunas que o cabeçalho, cortar
                     if len(cells) > len(header_cells):
                         cells = cells[:len(header_cells)]
                     data_rows.append(cells)
         
-        # Obter dados existentes na planilha
-        existing_data = worksheet.get_all_values()
+        st.success(f"✅ Dados processados: {len(data_rows)} linhas com conteúdo")
         
-        # Se a planilha está vazia, adicionar cabeçalho primeiro
+        if len(data_rows) == 0:
+            st.warning("⚠️ Nenhuma linha de dados encontrada")
+            return False, "Sem dados para inserir"
+        
+        # Verificar dados existentes na planilha
+        try:
+            existing_data = worksheet.get_all_values()
+            st.info(f"📊 Dados existentes na planilha: {len(existing_data)} linhas")
+        except:
+            existing_data = []
+            st.info("📊 Planilha vazia")
+        
+        # Determinar onde inserir os dados
         if not existing_data:
+            # Planilha vazia - inserir cabeçalho e dados
+            st.info("📝 Inserindo cabeçalho na linha 1")
             worksheet.update('A1', [header_cells])
-            first_empty_row = 2
+            first_data_row = 2
         else:
-            # Encontrar primeira linha vazia
-            first_empty_row = 2  # Começar da linha 2
-            for i in range(1, len(existing_data)):
-                row = existing_data[i]
-                if not any(cell.strip() for cell in row if cell):
-                    first_empty_row = i + 1
-                    break
-                else:
-                    first_empty_row = i + 2
+            # Planilha tem dados - encontrar primeira linha vazia
+            first_data_row = len(existing_data) + 1
+            # Verificar se precisa atualizar cabeçalho
+            if existing_data[0] != header_cells:
+                st.info("📝 Atualizando cabeçalho")
+                worksheet.update('A1', [header_cells])
         
-        # Inserir dados na planilha
+        st.info(f"📍 Inserindo dados a partir da linha: {first_data_row}")
+        
+        # Inserir dados
         if data_rows:
             # Calcular range
             num_rows = len(data_rows)
             num_cols = len(header_cells)
             
+            # Converter número para letra da coluna
             def num_to_col_letter(num):
                 result = ""
                 while num > 0:
@@ -178,22 +226,27 @@ def copy_csv_to_sheets_first(uploaded_file, filename=None):
                 return result
             
             end_col = num_to_col_letter(num_cols)
-            end_row = first_empty_row + num_rows - 1
-            range_name = f'A{first_empty_row}:{end_col}{end_row}'
+            end_row = first_data_row + num_rows - 1
+            range_name = f'A{first_data_row}:{end_col}{end_row}'
             
-            # Inserir dados
+            st.info(f"📊 Inserindo no range: {range_name}")
+            
+            # Inserir dados na planilha
             worksheet.update(range_name, data_rows, value_input_option='RAW')
+            
+            st.success(f"✅ {num_rows} linhas inseridas com sucesso!")
         
-        return True, f"{sheet_name} (coladas {len(data_rows)} linhas do CSV original)"
+        return True, f"{sheet_name} - {len(data_rows)} linhas inseridas"
         
     except Exception as e:
-        return False, str(e)
+        st.error(f"❌ Erro durante a cópia: {str(e)}")
+        return False, f"Erro: {str(e)}"
 
-# --- PASSO 2: PROCESSAR DADOS E APLICAR CUSTOS ---
-def process_data_and_apply_costs(uploaded_file, filename=None):
-    """PASSO 2: Processa dados do CSV e aplica custos."""
+# --- PROCESSAR DADOS PARA DASHBOARD ---
+def process_data_for_dashboard(uploaded_file, filename=None):
+    """Processa dados do CSV para o dashboard."""
     try:
-        # Ler CSV com pandas para processamento
+        # Ler CSV com pandas
         encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
         df_original = None
         
@@ -264,6 +317,7 @@ def process_data_and_apply_costs(uploaded_file, filename=None):
             elif any(word in col.lower() for word in ['qtd venda', 'quantidade venda', 'qtd_venda']):
                 qtd_venda_col = col
         
+        # Filtrar linhas válidas
         df = df[df[total_col].notna() & (df[total_col] != '') & (df[total_col] != 'nan')]
         
         if df.empty:
@@ -305,7 +359,7 @@ def process_data_and_apply_costs(uploaded_file, filename=None):
             df['Qtd_Venda'] = df[qtd_venda_col].apply(convert_quantity)
             df['Total_Contratos'] = df['Qtd_Venda'] * 2
         else:
-            df['Total_Contratos'] = 2
+            df['Total_Contratos'] = 2  # Assumir 2 contratos por operação
         
         df['Custo_Operacao'] = df['Total_Contratos'] * custo_por_contrato
         df['Total_Bruto'] = df['Total']
@@ -355,7 +409,7 @@ def process_data_and_apply_costs(uploaded_file, filename=None):
                                 except:
                                     continue
                         break
-            except Exception:
+            except:
                 pass
         
         if data_arquivo is None:
@@ -363,6 +417,7 @@ def process_data_and_apply_costs(uploaded_file, filename=None):
         
         df['Data'] = data_arquivo
         
+        # Agrupar por data
         daily_data = df.groupby('Data').agg({
             'Total_Bruto': 'sum',
             'Custo_Operacao': 'sum',
@@ -375,17 +430,24 @@ def process_data_and_apply_costs(uploaded_file, filename=None):
     except Exception as e:
         return pd.DataFrame(), f"Erro: {str(e)}"
 
-# --- PASSO 3: ADICIONAR DADOS PROCESSADOS À ABA 'dados' ---
-def add_processed_data_to_sheets(df):
-    """PASSO 3: Adiciona dados processados à aba 'dados'."""
+# --- ADICIONAR DADOS PROCESSADOS À ABA 'dados' ---
+def add_to_dados_sheet(df):
+    """Adiciona dados processados à aba 'dados'."""
     try:
         gc = get_gspread_client()
         if gc is None:
             return False
         
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
         
+        try:
+            worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
+        except:
+            # Criar aba 'dados' se não existir
+            worksheet = spreadsheet.add_worksheet(title=WORKSHEET_NAME, rows=1000, cols=10)
+            worksheet.update('A1', [['Data', 'Total']])
+        
+        # Verificar dados existentes
         existing_data = worksheet.get_all_records()
         existing_dates = set()
         
@@ -397,6 +459,7 @@ def add_processed_data_to_sheets(df):
                 except:
                     continue
         
+        # Filtrar dados novos
         new_data = df.copy()
         new_data['Data'] = pd.to_datetime(new_data['Data'])
         
@@ -407,11 +470,12 @@ def add_processed_data_to_sheets(df):
             if dates_to_add:
                 new_data = new_data[new_data['Data'].dt.date.isin(dates_to_add)]
             else:
-                return True
+                return True  # Dados já existem
         
         if new_data.empty:
             return True
         
+        # Adicionar dados
         rows_to_add = []
         for _, row in new_data.iterrows():
             rows_to_add.append([
@@ -421,7 +485,9 @@ def add_processed_data_to_sheets(df):
         
         worksheet.append_rows(rows_to_add)
         return True
-    except Exception:
+        
+    except Exception as e:
+        st.error(f"Erro ao adicionar à aba dados: {e}")
         return False
 
 # --- Funções de Filtro ---
@@ -705,7 +771,7 @@ def create_trading_heatmap(df):
 def main():
     initialize_session_state()
     
-    # CSS simples sem partículas por enquanto
+    # CSS com partículas douradas
     st.markdown("""
     <style>
     .stApp {
@@ -714,12 +780,58 @@ def main():
         min-height: 100vh !important;
     }
     
+    /* Container de partículas */
+    .particles {
+        position: fixed !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        overflow: hidden !important;
+        top: 0 !important;
+        left: 0 !important;
+        pointer-events: none !important;
+        z-index: -1 !important;
+    }
+    
+    /* Partículas individuais */
+    .particle {
+        position: absolute !important;
+        border-radius: 50% !important;
+        background: radial-gradient(circle, #ffd700 0%, #ffaa00 50%, transparent 100%) !important;
+        animation: float 20s infinite linear !important;
+        display: block !important;
+        visibility: visible !important;
+        box-shadow: 0 0 6px #ffd700, 0 0 12px #ffd700 !important;
+    }
+    
+    /* Animação das partículas subindo */
+    @keyframes float {
+        0% {
+            transform: translateY(100vh) scale(0.5) !important;
+            opacity: 0 !important;
+        }
+        10% {
+            opacity: 0.8 !important;
+        }
+        50% {
+            opacity: 1 !important;
+        }
+        90% {
+            opacity: 0.6 !important;
+        }
+        100% {
+            transform: translateY(-10vh) scale(1.2) !important;
+            opacity: 0 !important;
+        }
+    }
+    
     .stButton > button {
         background: linear-gradient(45deg, #3498db, #74b9ff) !important;
         color: white !important;
         border: none !important;
         box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4) !important;
         transition: all 0.3s ease !important;
+        position: relative !important;
+        z-index: 4 !important;
     }
     
     .stButton > button:hover {
@@ -727,8 +839,86 @@ def main():
         box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6) !important;
         transform: translateY(-2px) !important;
     }
+    
+    /* Garantir que todo conteúdo fique acima das partículas */
+    .main .block-container,
+    .stApp > div,
+    .stMarkdown,
+    .metric-container,
+    .vega-embed,
+    .stDataFrame,
+    .stSelectbox,
+    .stNumberInput,
+    .stFileUploader,
+    .stButton,
+    .stMetric,
+    .stColumns {
+        position: relative !important;
+        z-index: 1 !important;
+        background: transparent !important;
+    }
+    
+    /* Sidebar */
+    .css-1d391kg {
+        background-color: rgba(248, 249, 251, 0.95) !important;
+        backdrop-filter: blur(10px) !important;
+        position: relative !important;
+        z-index: 10 !important;
+    }
     </style>
+    
+    <!-- HTML para partículas douradas -->
+    <div class="particles" id="particles-container">
+        <div class="particle" style="width: 8px; height: 8px; left: 15%; animation-delay: 0s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 35%; animation-delay: 3s;"></div>
+        <div class="particle" style="width: 10px; height: 10px; left: 55%; animation-delay: 6s;"></div>
+        <div class="particle" style="width: 4px; height: 4px; left: 75%; animation-delay: 9s;"></div>
+        <div class="particle" style="width: 12px; height: 12px; left: 25%; animation-delay: 12s;"></div>
+        <div class="particle" style="width: 7px; height: 7px; left: 65%; animation-delay: 15s;"></div>
+        <div class="particle" style="width: 9px; height: 9px; left: 45%; animation-delay: 18s;"></div>
+        <div class="particle" style="width: 5px; height: 5px; left: 85%; animation-delay: 2s;"></div>
+        <div class="particle" style="width: 11px; height: 11px; left: 5%; animation-delay: 5s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 95%; animation-delay: 8s;"></div>
+        <div class="particle" style="width: 8px; height: 8px; left: 20%; animation-delay: 11s;"></div>
+        <div class="particle" style="width: 10px; height: 10px; left: 80%; animation-delay: 14s;"></div>
+        <div class="particle" style="width: 4px; height: 4px; left: 40%; animation-delay: 17s;"></div>
+        <div class="particle" style="width: 9px; height: 9px; left: 60%; animation-delay: 1s;"></div>
+        <div class="particle" style="width: 7px; height: 7px; left: 30%; animation-delay: 4s;"></div>
+        <div class="particle" style="width: 12px; height: 12px; left: 70%; animation-delay: 7s;"></div>
+        <div class="particle" style="width: 5px; height: 5px; left: 10%; animation-delay: 10s;"></div>
+        <div class="particle" style="width: 8px; height: 8px; left: 90%; animation-delay: 13s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 50%; animation-delay: 16s;"></div>
+        <div class="particle" style="width: 11px; height: 11px; left: 12%; animation-delay: 19s;"></div>
+    </div>
+    
+    <script>
+    // JavaScript para criar partículas adicionais
+    function createAdditionalParticles() {
+        const container = document.getElementById('particles-container');
+        if (container) {
+            for (let i = 0; i < 25; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                
+                const size = Math.random() * 8 + 4;
+                particle.style.width = size + 'px';
+                particle.style.height = size + 'px';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 20 + 's';
+                particle.style.display = 'block';
+                particle.style.visibility = 'visible';
+                
+                container.appendChild(particle);
+            }
+        }
+    }
+    
+    document.addEventListener('DOMContentLoaded', createAdditionalParticles);
+    setTimeout(createAdditionalParticles, 1000);
+    </script>
     """, unsafe_allow_html=True)
+    
+    st.title("📈 Trading Activity Dashboard")
     
     # SIDEBAR COM FILTROS
     with st.sidebar:
@@ -805,65 +995,54 @@ def main():
             type=['csv']
         )
     
-    # CONTEÚDO PRINCIPAL
-    st.title("📈 Trading Activity Dashboard")
-    
-    # PROCESSAR UPLOAD NA ORDEM CORRETA
+    # PROCESSAMENTO DO UPLOAD
     if uploaded_file is not None:
         filename = uploaded_file.name
+        st.subheader("🔄 Processamento do Arquivo")
         
-        # PASSO 1: COLAR DADOS BRUTOS
-        st.subheader("🔄 Processamento em Etapas")
+        # PASSO 1: Colar dados originais
+        st.markdown("### 📋 PASSO 1: Copiando dados originais")
+        success_copy, result_copy = copy_csv_to_sheets(uploaded_file, filename)
         
-        with st.expander("📋 PASSO 1: Colando dados brutos no Google Sheets", expanded=True):
-            with st.spinner("Colando dados originais do CSV..."):
-                success_copy, result_copy = copy_csv_to_sheets_first(uploaded_file, filename)
-                
-                if success_copy:
-                    st.success(f"✅ PASSO 1 CONCLUÍDO: {result_copy}")
-                else:
-                    st.error(f"❌ PASSO 1 FALHOU: {result_copy}")
-        
-        # PASSO 2: PROCESSAR E APLICAR CUSTOS
         if success_copy:
-            with st.expander("⚙️ PASSO 2: Processando dados e aplicando custos", expanded=True):
-                with st.spinner("Aplicando custos e processando dados..."):
-                    processed_df, asset_info = process_data_and_apply_costs(uploaded_file, filename)
+            st.success(f"✅ {result_copy}")
+            
+            # PASSO 2: Processar para dashboard
+            st.markdown("### ⚙️ PASSO 2: Processando para dashboard")
+            processed_df, asset_info = process_data_for_dashboard(uploaded_file, filename)
+            
+            if not processed_df.empty:
+                st.success(f"✅ Dados processados - {asset_info}")
+                
+                # PASSO 3: Adicionar à aba dados
+                st.markdown("### 📊 PASSO 3: Adicionando à aba 'dados'")
+                if add_to_dados_sheet(processed_df):
+                    st.success("✅ Dados adicionados à aba 'dados'")
                     
-                    if not processed_df.empty:
-                        st.success(f"✅ PASSO 2 CONCLUÍDO: Dados processados - {asset_info}")
-                        
-                        # Mostrar resumo do processamento
-                        total_bruto = processed_df['Total'].sum()
-                        st.info(f"💰 Total processado: R$ {total_bruto:,.2f}")
-                        
-                        # PASSO 3: ADICIONAR À ABA 'dados'
-                        with st.expander("📊 PASSO 3: Adicionando à aba 'dados' para dashboard", expanded=True):
-                            with st.spinner("Adicionando dados processados à aba 'dados'..."):
-                                success_add = add_processed_data_to_sheets(processed_df)
-                                
-                                if success_add:
-                                    st.success("✅ PASSO 3 CONCLUÍDO: Dados adicionados à aba 'dados'")
-                                    
-                                    # Recarregar dados para dashboard
-                                    time.sleep(1)
-                                    st.cache_data.clear()
-                                    sheets_data = load_data_from_sheets()
-                                    if sheets_data is not None:
-                                        st.session_state.filtered_data = sheets_data
-                                        st.success("🔄 Dashboard atualizado com novos dados!")
-                                else:
-                                    st.error("❌ PASSO 3 FALHOU: Erro ao adicionar dados à aba 'dados'")
-                    else:
-                        st.error(f"❌ PASSO 2 FALHOU: {asset_info}")
+                    # Atualizar cache
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    
+                    # Recarregar dados
+                    sheets_data = load_data_from_sheets()
+                    if sheets_data is not None:
+                        st.session_state.filtered_data = sheets_data
+                        st.success("🔄 Dashboard atualizado!")
+                else:
+                    st.error("❌ Erro ao adicionar à aba 'dados'")
+            else:
+                st.error(f"❌ Erro no processamento: {asset_info}")
+        else:
+            st.error(f"❌ Erro na cópia: {result_copy}")
     
-    # PASSO 4: EXIBIR DASHBOARD
+    # DASHBOARD
+    st.markdown("---")
+    st.subheader("📊 Dashboard")
+    
+    # Exibir dados filtrados
     display_data = st.session_state.filtered_data
     
     if display_data is not None and not display_data.empty:
-        st.markdown("---")
-        st.subheader("📊 PASSO 4: Dashboard com Dados Processados")
-        
         # Estatísticas
         create_statistics_container(display_data)
         
@@ -891,6 +1070,11 @@ def main():
                 st.altair_chart(histogram_chart, use_container_width=True)
             
             with col2:
+                st.altair_chart(radial_chart, use_container_width=True)
+        else:
+            if histogram_chart is not None:
+                st.altair_chart(histogram_chart, use_container_width=True)
+            if radial_chart is not None:
                 st.altair_chart(radial_chart, use_container_width=True)
     else:
         st.info("📋 Nenhum dado encontrado. Faça upload de um arquivo CSV para começar.")
