@@ -33,6 +33,42 @@ def get_gspread_client():
         st.error(f"Erro na autenticação: {e}")
         return None
 
+# --- Função corrigida para ler CSV com diferentes encodings ---
+def read_csv_with_encoding(uploaded_file):
+    """Tenta ler o CSV com diferentes encodings até encontrar o correto."""
+    encodings = [
+        'latin-1',      # Mais comum para arquivos brasileiros
+        'cp1252',       # Windows
+        'iso-8859-1',   # Latin-1
+        'utf-8',        # UTF-8
+        'windows-1252', # Windows específico
+        'cp850',        # DOS
+        'utf-16'        # UTF-16
+    ]
+    
+    for encoding in encodings:
+        try:
+            uploaded_file.seek(0)  # Reset file pointer
+            
+            # Ler o conteúdo como texto primeiro
+            content = uploaded_file.read().decode(encoding)
+            
+            # Dividir em linhas
+            lines = content.split('\n')
+            
+            st.success(f"✅ Arquivo lido com encoding: {encoding}")
+            return lines, encoding
+            
+        except UnicodeDecodeError:
+            st.warning(f"⚠️ Encoding {encoding} falhou, tentando próximo...")
+            continue
+        except Exception as e:
+            st.warning(f"⚠️ Erro com {encoding}: {e}")
+            continue
+    
+    st.error("❌ Não foi possível ler o arquivo com nenhum encoding testado")
+    return None, None
+
 # --- Colar dados do CSV no Google Sheets ---
 def copy_csv_to_sheets(uploaded_file, filename):
     try:
@@ -51,17 +87,31 @@ def copy_csv_to_sheets(uploaded_file, filename):
         except:
             worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
         
-        # Ler arquivo CSV
-        uploaded_file.seek(0)
-        content = uploaded_file.read().decode('utf-8')
-        lines = content.split('\n')
+        # Ler arquivo CSV com encoding correto
+        lines, encoding_used = read_csv_with_encoding(uploaded_file)
+        
+        if lines is None:
+            return False
+        
+        st.info(f"📄 Total de linhas no arquivo: {len(lines)}")
+        
+        # Verificar se tem pelo menos 6 linhas
+        if len(lines) < 6:
+            st.error("❌ Arquivo não tem dados suficientes (mínimo 6 linhas)")
+            return False
         
         # Linha 5 = cabeçalho (índice 4)
-        header = lines[4].strip().split(';')
+        header_line = lines[4].strip()
+        if not header_line:
+            st.error("❌ Linha 5 (cabeçalho) está vazia")
+            return False
+        
+        header = header_line.split(';')
+        st.success(f"✅ Cabeçalho encontrado: {len(header)} colunas")
         
         # Dados a partir da linha 6
         data_rows = []
-        for line in lines[5:]:
+        for i, line in enumerate(lines[5:], 6):
             if line.strip():
                 cells = line.strip().split(';')
                 if any(cell.strip() for cell in cells):
@@ -95,87 +145,89 @@ def copy_csv_to_sheets(uploaded_file, filename):
         return False
 
 # --- Processar dados para gráficos ---
-def process_trading_data(df):
-    """Processa os dados de trading baseado no formato específico da tabela."""
-    df = df.copy()
-    
-    # Limpar nomes das colunas
-    df.columns = df.columns.str.strip()
-    
-    # Procurar pela coluna de Data (Abertura ou Fechamento)
-    date_col = None
-    for col in df.columns:
-        if any(word in col for word in ['Abertura', 'Fechamento', 'Data']):
-            date_col = col
-            break
-    
-    if date_col is None:
-        raise ValueError("Coluna de data não encontrada")
-    
-    # Procurar pela coluna Total
-    total_col = None
-    for col in df.columns:
-        if 'Total' in col or 'total' in col:
-            total_col = col
-            break
-    
-    if total_col is None:
-        raise ValueError("Coluna de total não encontrada")
-    
-    # Filtrar apenas linhas que têm data válida
-    df = df[df[date_col].notna() & (df[date_col] != '')]
-    
-    # Converter Data para datetime - extrair apenas a parte da data
-    def extract_date(date_str):
-        try:
-            if isinstance(date_str, str):
-                date_part = date_str.split(' ')[0]  # Pegar só a parte da data
-                return pd.to_datetime(date_part, format='%d/%m/%Y', errors='coerce')
-            else:
-                return pd.to_datetime(date_str, errors='coerce')
-        except:
-            return pd.NaT
-    
-    df['Data'] = df[date_col].apply(extract_date)
-    
-    # Converter Total para numérico
-    def convert_total(value):
-        try:
-            if pd.isna(value) or value == '':
-                return 0
-            
-            # Converter para string e limpar
-            value_str = str(value).strip()
-            
-            # Remover caracteres não numéricos exceto - e .
-            value_str = value_str.replace(',', '.')
-            value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
-            
-            return float(value_str) if value_str else 0
-        except:
-            return 0
-    
-    df['Total'] = df[total_col].apply(convert_total)
-    
-    # Remover linhas com datas ou totais inválidos
-    df = df.dropna(subset=['Data'])
-    
-    # Agrupar por data para somar os resultados do dia
-    daily_data = df.groupby('Data').agg({
-        'Total': 'sum'
-    }).reset_index()
-    
-    return daily_data
-
 def process_data_for_charts(uploaded_file):
     try:
-        uploaded_file.seek(0)
-        df = pd.read_csv(uploaded_file, encoding='utf-8', sep=';', skiprows=4)
+        # Ler CSV com encoding correto
+        lines, encoding_used = read_csv_with_encoding(uploaded_file)
         
-        # Processar dados usando a função existente
-        processed_df = process_trading_data(df)
+        if lines is None:
+            return None
         
-        return processed_df
+        # Converter para DataFrame
+        # Pular as primeiras 4 linhas e usar linha 5 como cabeçalho
+        header = lines[4].strip().split(';')
+        data_lines = []
+        
+        for line in lines[5:]:
+            if line.strip():
+                cells = line.strip().split(';')
+                if any(cell.strip() for cell in cells):
+                    while len(cells) < len(header):
+                        cells.append('')
+                    data_lines.append(cells[:len(header)])
+        
+        # Criar DataFrame
+        df = pd.DataFrame(data_lines, columns=header)
+        
+        # Processar dados
+        df.columns = df.columns.str.strip()
+        
+        # Encontrar coluna de data
+        date_col = None
+        for col in df.columns:
+            if any(word in col for word in ['Abertura', 'Fechamento', 'Data']):
+                date_col = col
+                break
+        
+        # Encontrar coluna total
+        total_col = None
+        for col in df.columns:
+            if 'Total' in col:
+                total_col = col
+                break
+        
+        if not date_col or not total_col:
+            st.error("❌ Colunas necessárias não encontradas")
+            return None
+        
+        # Limpar dados
+        df = df[df[date_col].notna() & df[total_col].notna()]
+        df = df[df[date_col] != '']
+        df = df[df[total_col] != '']
+        
+        # Converter data
+        def extract_date(date_str):
+            try:
+                if isinstance(date_str, str):
+                    date_part = date_str.split(' ')[0]
+                    return pd.to_datetime(date_part, format='%d/%m/%Y', errors='coerce')
+                else:
+                    return pd.to_datetime(date_str, errors='coerce')
+            except:
+                return pd.NaT
+        
+        df['Data'] = df[date_col].apply(extract_date)
+        
+        # Converter total
+        def convert_total(value):
+            try:
+                if pd.isna(value) or value == '':
+                    return 0
+                value_str = str(value).strip().replace(',', '.')
+                value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
+                return float(value_str) if value_str else 0
+            except:
+                return 0
+        
+        df['Total'] = df[total_col].apply(convert_total)
+        
+        # Remover dados inválidos
+        df = df.dropna(subset=['Data'])
+        
+        # Agrupar por data
+        daily_data = df.groupby('Data')['Total'].sum().reset_index()
+        
+        return daily_data
         
     except Exception as e:
         st.error(f"Erro no processamento: {e}")
