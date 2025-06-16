@@ -233,9 +233,9 @@ def process_data_for_charts(uploaded_file):
         st.error(f"Erro no processamento: {e}")
         return None
 
-# --- Criar heatmap estilo GitHub ---
+# --- Criar heatmap com escala de cores correta ---
 def create_trading_heatmap(df):
-    """Cria um gráfico de heatmap estilo GitHub para a atividade de trading."""
+    """Cria heatmap com cinza para dias vazios, vermelho para perdas, verde para ganhos."""
     try:
         if df.empty or 'Data' not in df.columns or 'Total' not in df.columns:
             st.warning("Dados insuficientes para gerar o heatmap.")
@@ -282,7 +282,18 @@ def create_trading_heatmap(df):
         full_df['is_current_year'] = full_df['Data'].dt.year == current_year
         full_df['display_total'] = full_df['Total'].where(full_df['is_current_year'], None)
         
-        # Criar heatmap estilo GitHub
+        # Determinar valores máximos para escala
+        max_gain = df_year['Total'].max() if not df_year.empty else 100
+        max_loss = abs(df_year['Total'].min()) if not df_year.empty else 100
+        
+        # Criar escala de cores: vermelho para perdas, cinza para zero, verde para ganhos
+        color_scale = alt.Scale(
+            domain=[-max_loss, -max_loss*0.5, 0, max_gain*0.5, max_gain],
+            range=['#8B0000', '#CD5C5C', '#E0E0E0', '#90EE90', '#006400'],
+            type='linear'
+        )
+        
+        # Criar heatmap
         chart = alt.Chart(full_df).mark_rect(
             stroke='white', strokeWidth=1, cornerRadius=2
         ).encode(
@@ -292,13 +303,19 @@ def create_trading_heatmap(df):
                                ticks=False, domain=False, grid=False)),
             color=alt.condition(
                 alt.datum.display_total == None,
-                alt.value('#ebedf0'),
-                alt.Color('display_total:Q',
-                    scale=alt.Scale(
-                        range=['#ebedf0', '#c6e48b', '#7bc96f', '#239a3b', '#196127'],
-                        type='linear'
-                    ),
-                    legend=None)
+                alt.value('#E0E0E0'),  # Cinza claro para dias fora do ano
+                alt.condition(
+                    alt.datum.display_total == 0,
+                    alt.value('#F5F5F5'),  # Cinza muito claro para dias sem trading
+                    alt.Color('display_total:Q',
+                        scale=color_scale,
+                        legend=alt.Legend(
+                            title="Resultado (R$)", 
+                            orient='bottom',
+                            gradientLength=200
+                        )
+                    )
+                )
             ),
             tooltip=[
                 alt.Tooltip('Data:T', format='%d/%m/%Y'),
@@ -394,6 +411,17 @@ def main():
                 line_chart = create_line_chart(processed_data)
                 if line_chart:
                     st.altair_chart(line_chart, use_container_width=True)
+                
+                # Legenda explicativa
+                st.info("""
+                **Como interpretar o heatmap:**
+                - 🟩 **Verde escuro**: Maiores ganhos
+                - 🟢 **Verde claro**: Ganhos menores
+                - ⬜ **Cinza claro**: Dias sem trading
+                - 🟥 **Vermelho claro**: Perdas menores
+                - 🟥 **Vermelho escuro**: Maiores perdas
+                - Passe o mouse sobre os quadrados para ver detalhes
+                """)
                 
                 # Dados processados
                 with st.expander("📊 Dados por dia"):
