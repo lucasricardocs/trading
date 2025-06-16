@@ -78,7 +78,7 @@ def load_data_from_sheets():
         return None
 
 def copy_full_csv_to_sheets(df_original, filename=None):
-    """Copia todos os dados do CSV original para uma aba específica mantendo a sequência exata."""
+    """Adiciona dados do CSV abaixo da última linha preenchida, mantendo correspondência de colunas."""
     try:
         gc = get_gspread_client()
         if gc is None:
@@ -86,7 +86,7 @@ def copy_full_csv_to_sheets(df_original, filename=None):
         
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
         
-        # Nome da aba baseado no arquivo ou data atual
+        # Nome da aba baseado no arquivo ou usar aba padrão
         if filename:
             sheet_name = filename.replace('.csv', '').replace('.CSV', '')[:30]
         else:
@@ -95,60 +95,72 @@ def copy_full_csv_to_sheets(df_original, filename=None):
         # Verificar se a aba já existe, se não, criar
         try:
             worksheet = spreadsheet.worksheet(sheet_name)
-            # Se existe, limpar conteúdo
-            worksheet.clear()
         except:
-            # Se não existe, criar nova aba com tamanho adequado
+            # Se não existe, criar nova aba
             worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
+            
+            # Se é uma aba nova, adicionar o cabeçalho primeiro
+            header_esperado = [
+                'Subconta', 'Ativo', 'Abertura', 'Fechamento', 'Tempo Operação',
+                'Qtd Compra', 'Qtd Venda', 'Lado', 'Preço Compra', 'Preço Venda',
+                'Preço de Mercado', 'Res. Intervalo', 'Res. Intervalo (%)',
+                'Número Operação', 'Res. Operação', 'Res. Operação (%)', 'TET', 'Total'
+            ]
+            worksheet.update('A1', [header_esperado])
         
-        # Sequência exata das colunas conforme solicitado
-        expected_columns = [
-            'Subconta', 'Ativo', 'Abertura', 'Fechamento', 'Tempo Operação',
-            'Qtd Compra', 'Qtd Venda', 'Lado', 'Preço Compra', 'Preço Venda',
-            'Preço de Mercado', 'Res. Intervalo', 'Res. Intervalo (%)',
-            'Número Operação', 'Res. Operação', 'Res. Operação (%)', 'TET', 'Total'
-        ]
+        # Obter dados existentes na planilha para encontrar a última linha preenchida
+        existing_data = worksheet.get_all_values()
         
-        # Preparar DataFrame mantendo a ordem exata
+        # Encontrar a última linha com dados (não vazia)
+        last_row = 1  # Começar da linha 1 (cabeçalho)
+        for i, row in enumerate(existing_data, 1):
+            if any(cell.strip() for cell in row):  # Se há algum dado na linha
+                last_row = i
+        
+        # A próxima linha onde vamos inserir os dados
+        next_row = last_row + 1
+        
+        # Obter o cabeçalho atual da planilha (primeira linha)
+        if existing_data:
+            planilha_header = existing_data[0]
+        else:
+            # Se planilha está vazia, usar cabeçalho padrão
+            planilha_header = [
+                'Subconta', 'Ativo', 'Abertura', 'Fechamento', 'Tempo Operação',
+                'Qtd Compra', 'Qtd Venda', 'Lado', 'Preço Compra', 'Preço Venda',
+                'Preço de Mercado', 'Res. Intervalo', 'Res. Intervalo (%)',
+                'Número Operação', 'Res. Operação', 'Res. Operação (%)', 'TET', 'Total'
+            ]
+            worksheet.update('A1', [planilha_header])
+            next_row = 2
+        
+        # Preparar dados do CSV para inserção
         df_to_copy = df_original.copy()
+        csv_header = df_to_copy.columns.tolist()
         
-        # Reordenar colunas para manter a sequência exata
-        final_columns = []
+        # Criar mapeamento entre colunas do CSV e posições na planilha
+        dados_para_inserir = []
         
-        # Primeiro, adicionar colunas na ordem esperada (se existirem)
-        for col in expected_columns:
-            if col in df_to_copy.columns:
-                final_columns.append(col)
-        
-        # Depois, adicionar qualquer coluna adicional que não estava na lista
-        for col in df_to_copy.columns:
-            if col not in final_columns:
-                final_columns.append(col)
-        
-        # Reordenar DataFrame
-        df_to_copy = df_to_copy[final_columns]
-        
-        # Preparar dados para inserção
-        data_to_insert = []
-        
-        # Cabeçalho
-        header_row = df_to_copy.columns.tolist()
-        data_to_insert.append(header_row)
-        
-        # Dados
         for _, row in df_to_copy.iterrows():
-            row_data = []
-            for value in row:
-                if pd.isna(value):
-                    row_data.append('')
-                else:
-                    row_data.append(str(value))
-            data_to_insert.append(row_data)
+            linha_planilha = [''] * len(planilha_header)  # Criar linha vazia do tamanho da planilha
+            
+            # Preencher cada posição da planilha com o dado correspondente do CSV
+            for i, col_planilha in enumerate(planilha_header):
+                if col_planilha in csv_header:
+                    # Encontrar o valor correspondente no CSV
+                    valor = row[col_planilha]
+                    if pd.isna(valor):
+                        linha_planilha[i] = ''
+                    else:
+                        linha_planilha[i] = str(valor)
+            
+            dados_para_inserir.append(linha_planilha)
         
-        # Inserir dados na planilha
-        if data_to_insert:
-            num_rows = len(data_to_insert)
-            num_cols = len(data_to_insert[0])
+        # Inserir os dados na planilha a partir da próxima linha vazia
+        if dados_para_inserir:
+            # Calcular o range para inserção
+            num_rows = len(dados_para_inserir)
+            num_cols = len(planilha_header)
             
             # Converter número para letra da coluna
             def num_to_col_letter(num):
@@ -160,12 +172,13 @@ def copy_full_csv_to_sheets(df_original, filename=None):
                 return result
             
             end_col = num_to_col_letter(num_cols)
-            range_name = f'A1:{end_col}{num_rows}'
+            end_row = next_row + num_rows - 1
+            range_name = f'A{next_row}:{end_col}{end_row}'
             
-            # Atualizar a planilha com todos os dados
-            worksheet.update(range_name, data_to_insert, value_input_option='RAW')
+            # Inserir os dados
+            worksheet.update(range_name, dados_para_inserir, value_input_option='RAW')
         
-        return True, sheet_name
+        return True, f"{sheet_name} (adicionadas {len(dados_para_inserir)} linhas)"
         
     except Exception as e:
         return False, str(e)
@@ -430,10 +443,10 @@ def create_statistics_container(df):
         media_diaria = df[df['Total'] != 0]['Total'].mean() if len(df[df['Total'] != 0]) > 0 else 0
         
         st.markdown("""
-        <div style="background: rgba(44, 62, 80, 0.3); 
+        <div style="background: rgba(255, 255, 255, 0.1); 
                     backdrop-filter: blur(20px); padding: 2rem; border-radius: 15px; margin: 1rem 0; 
-                    box-shadow: 0 8px 32px rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);">
-            <h3 style="color: white; text-align: center; margin-bottom: 1.5rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">📊 Estatísticas de Trading</h3>
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);">
+            <h3 style="color: #333; text-align: center; margin-bottom: 1.5rem;">📊 Estatísticas de Trading</h3>
         </div>
         """, unsafe_allow_html=True)
         
@@ -494,10 +507,10 @@ def create_area_chart(df):
             title='Evolução Acumulada dos Resultados'
         ).configure_title(
             fontSize=16,
-            color='white'
+            color='#333'
         ).configure_axis(
-            labelColor='white',
-            titleColor='white'
+            labelColor='#333',
+            titleColor='#333'
         )
         
         return chart
@@ -531,10 +544,10 @@ def create_daily_histogram(df):
             title='Resultado Diário'
         ).configure_title(
             fontSize=16,
-            color='white'
+            color='#333'
         ).configure_axis(
-            labelColor='white',
-            titleColor='white'
+            labelColor='#333',
+            titleColor='#333'
         )
         
         return chart
@@ -574,7 +587,7 @@ def create_radial_chart(df):
 
         c1 = base.mark_arc(innerRadius=20, stroke="#fff", strokeWidth=2)
         c2 = base.mark_text(radiusOffset=15, fontSize=10, fontWeight='bold').encode(
-            text=alt.Text('Mes:N'), color=alt.value('white')
+            text=alt.Text('Mes:N'), color=alt.value('#333')
         )
 
         chart = (c1 + c2).properties(
@@ -582,7 +595,7 @@ def create_radial_chart(df):
             title='Total por Mês'
         ).configure_title(
             fontSize=16,
-            color='white'
+            color='#333'
         )
         
         return chart
@@ -632,14 +645,14 @@ def create_trading_heatmap(df):
         ).encode(
             x=alt.X('week:O', title=None, axis=None),
             y=alt.Y('day_name:N', sort=day_names, title=None,
-                   axis=alt.Axis(labelAngle=0, labelFontSize=10, labelColor='white',
+                   axis=alt.Axis(labelAngle=0, labelFontSize=10, labelColor='#333',
                                ticks=False, domain=False, grid=False)),
             color=alt.condition(
                 alt.datum.display_total == None,
-                alt.value('rgba(255,255,255,0.1)'),
+                alt.value('#ebedf0'),
                 alt.Color('display_total:Q',
                     scale=alt.Scale(
-                        range=['rgba(255,255,255,0.1)', '#74b9ff', '#0984e3', '#2d3436', '#636e72'],
+                        range=['#ebedf0', '#c6e48b', '#7bc96f', '#239a3b', '#196127'],
                         type='linear'
                     ),
                     legend=None)
@@ -654,7 +667,7 @@ def create_trading_heatmap(df):
             title=f'Atividade de Trading - {current_year}'
         ).configure_title(
             fontSize=16,
-            color='white'
+            color='#333'
         )
         
         return chart
@@ -665,21 +678,17 @@ def create_trading_heatmap(df):
 def main():
     initialize_session_state()
     
-    # CSS CORRIGIDO para background com partículas posicionadas corretamente
+    # CSS APENAS COM PARTÍCULAS (sem background escuro)
     st.markdown("""
     <style>
-    /* Background principal */
+    /* Remover background escuro - usar padrão do Streamlit */
     .stApp {
-        background: radial-gradient(circle at 30% 30%, #2c3e50, #000) !important;
-        background-attachment: fixed !important;
         position: relative !important;
         overflow-x: hidden !important;
         min-height: 100vh !important;
-        color: white !important;
-        font-family: Arial, sans-serif !important;
     }
     
-    /* Container de partículas - POSICIONADO ENTRE BACKGROUND E CONTEÚDO */
+    /* Container de partículas - APENAS as fagulhas */
     .particles {
         position: fixed !important;
         width: 100vw !important;
@@ -688,33 +697,34 @@ def main():
         top: 0 !important;
         left: 0 !important;
         pointer-events: none !important;
-        z-index: -1 !important;  /* ABAIXO de todo conteúdo, mas ACIMA do background */
+        z-index: -1 !important;
     }
     
-    /* Partículas individuais */
+    /* Partículas individuais - fagulhas douradas */
     .particle {
         position: absolute !important;
         border-radius: 50% !important;
-        background: rgba(255, 255, 255, 0.6) !important;  /* Opacidade reduzida para não interferir */
+        background: radial-gradient(circle, #ffd700 0%, #ffaa00 50%, transparent 100%) !important;
         animation: float 20s infinite linear !important;
         display: block !important;
         visibility: visible !important;
+        box-shadow: 0 0 6px #ffd700, 0 0 12px #ffd700 !important;
     }
     
-    /* Animação das partículas */
+    /* Animação das partículas subindo */
     @keyframes float {
         0% {
             transform: translateY(100vh) scale(0.5) !important;
             opacity: 0 !important;
         }
         10% {
-            opacity: 0.6 !important;
-        }
-        50% {
             opacity: 0.8 !important;
         }
+        50% {
+            opacity: 1 !important;
+        }
         90% {
-            opacity: 0.3 !important;
+            opacity: 0.6 !important;
         }
         100% {
             transform: translateY(-10vh) scale(1.2) !important;
@@ -722,7 +732,7 @@ def main():
         }
     }
     
-    /* GARANTIR que todo conteúdo fique ACIMA das partículas */
+    /* Garantir que todo conteúdo fique acima das partículas */
     .main .block-container,
     .stApp > div,
     .stMarkdown,
@@ -736,57 +746,28 @@ def main():
     .stMetric,
     .stColumns {
         position: relative !important;
-        z-index: 1 !important;  /* ACIMA das partículas */
+        z-index: 1 !important;
         background: transparent !important;
     }
     
-    /* Containers específicos com z-index elevado */
-    div[data-testid="stMetricValue"],
-    div[data-testid="stMetricLabel"],
-    div[data-testid="metric-container"] {
-        position: relative !important;
-        z-index: 2 !important;
-    }
-    
-    /* Sidebar acima das partículas */
+    /* Sidebar */
     .css-1d391kg {
-        background-color: rgba(44, 62, 80, 0.9) !important;
+        background-color: rgba(248, 249, 251, 0.95) !important;
         backdrop-filter: blur(10px) !important;
         position: relative !important;
-        z-index: 10 !important;  /* Sidebar sempre no topo */
+        z-index: 10 !important;
     }
     
-    /* Gráficos e visualizações acima das partículas */
+    /* Gráficos acima das partículas */
     .vega-embed,
     .vega-embed canvas,
     .vega-embed svg {
         background: transparent !important;
         position: relative !important;
-        z-index: 5 !important;  /* Gráficos bem acima das partículas */
+        z-index: 5 !important;
     }
     
-    /* Containers de estatísticas acima das partículas */
-    div[style*="backdrop-filter: blur(20px)"] {
-        position: relative !important;
-        z-index: 3 !important;
-    }
-    
-    /* Títulos e textos */
-    h1, h2, h3, h4, h5, h6 {
-        color: #ffffff !important;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.8) !important;
-        position: relative !important;
-        z-index: 2 !important;
-    }
-    
-    .stMarkdown, .stText, p, span {
-        color: #e0e0e0 !important;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.8) !important;
-        position: relative !important;
-        z-index: 2 !important;
-    }
-    
-    /* Botões acima das partículas */
+    /* Botões */
     .stButton > button {
         background: linear-gradient(45deg, #3498db, #74b9ff) !important;
         color: white !important;
@@ -803,70 +784,58 @@ def main():
         transform: translateY(-2px) !important;
     }
     
-    /* Upload area acima das partículas */
+    /* Upload area */
     .stFileUploader > div {
-        background-color: rgba(44, 62, 80, 0.3) !important;
-        border: 2px dashed rgba(255, 255, 255, 0.5) !important;
+        background-color: rgba(248, 249, 251, 0.8) !important;
+        border: 2px dashed rgba(52, 152, 219, 0.5) !important;
         backdrop-filter: blur(10px) !important;
         position: relative !important;
         z-index: 3 !important;
     }
     
-    /* Inputs acima das partículas */
+    /* Inputs */
     .stNumberInput > div > div > input,
     .stSelectbox > div > div > select {
-        background-color: rgba(44, 62, 80, 0.5) !important;
-        color: white !important;
-        border: 1px solid rgba(255, 255, 255, 0.3) !important;
         position: relative !important;
         z-index: 3 !important;
     }
     </style>
     
-    <!-- HTML para partículas - GARANTINDO posicionamento correto -->
+    <!-- HTML para partículas douradas -->
     <div class="particles" id="particles-container">
-        <div class="particle" style="width: 10px; height: 10px; left: 20%; animation-delay: 0s;"></div>
-        <div class="particle" style="width: 8px; height: 8px; left: 40%; animation-delay: 5s;"></div>
-        <div class="particle" style="width: 12px; height: 12px; left: 60%; animation-delay: 10s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 80%; animation-delay: 15s;"></div>
-        <div class="particle" style="width: 14px; height: 14px; left: 30%; animation-delay: 3s;"></div>
-        <div class="particle" style="width: 9px; height: 9px; left: 70%; animation-delay: 8s;"></div>
-        <div class="particle" style="width: 11px; height: 11px; left: 50%; animation-delay: 12s;"></div>
-        <div class="particle" style="width: 7px; height: 7px; left: 90%; animation-delay: 18s;"></div>
-        <div class="particle" style="width: 13px; height: 13px; left: 10%; animation-delay: 6s;"></div>
-        <div class="particle" style="width: 5px; height: 5px; left: 25%; animation-delay: 14s;"></div>
-        <div class="particle" style="width: 15px; height: 15px; left: 75%; animation-delay: 2s;"></div>
-        <div class="particle" style="width: 8px; height: 8px; left: 45%; animation-delay: 16s;"></div>
-        <div class="particle" style="width: 10px; height: 10px; left: 65%; animation-delay: 4s;"></div>
-        <div class="particle" style="width: 12px; height: 12px; left: 85%; animation-delay: 10s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 15%; animation-delay: 7s;"></div>
-        <div class="particle" style="width: 14px; height: 14px; left: 35%; animation-delay: 13s;"></div>
-        <div class="particle" style="width: 9px; height: 9px; left: 55%; animation-delay: 9s;"></div>
-        <div class="particle" style="width: 11px; height: 11px; left: 95%; animation-delay: 11s;"></div>
-        <div class="particle" style="width: 7px; height: 7px; left: 5%; animation-delay: 17s;"></div>
-        <div class="particle" style="width: 13px; height: 13px; left: 82%; animation-delay: 1s;"></div>
-        <div class="particle" style="width: 4px; height: 4px; left: 12%; animation-delay: 19s;"></div>
-        <div class="particle" style="width: 16px; height: 16px; left: 88%; animation-delay: 1s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 33%; animation-delay: 11s;"></div>
-        <div class="particle" style="width: 8px; height: 8px; left: 67%; animation-delay: 15s;"></div>
-        <div class="particle" style="width: 12px; height: 12px; left: 77%; animation-delay: 4s;"></div>
+        <div class="particle" style="width: 8px; height: 8px; left: 15%; animation-delay: 0s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 35%; animation-delay: 3s;"></div>
+        <div class="particle" style="width: 10px; height: 10px; left: 55%; animation-delay: 6s;"></div>
+        <div class="particle" style="width: 4px; height: 4px; left: 75%; animation-delay: 9s;"></div>
+        <div class="particle" style="width: 12px; height: 12px; left: 25%; animation-delay: 12s;"></div>
+        <div class="particle" style="width: 7px; height: 7px; left: 65%; animation-delay: 15s;"></div>
+        <div class="particle" style="width: 9px; height: 9px; left: 45%; animation-delay: 18s;"></div>
+        <div class="particle" style="width: 5px; height: 5px; left: 85%; animation-delay: 2s;"></div>
+        <div class="particle" style="width: 11px; height: 11px; left: 5%; animation-delay: 5s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 95%; animation-delay: 8s;"></div>
+        <div class="particle" style="width: 8px; height: 8px; left: 20%; animation-delay: 11s;"></div>
+        <div class="particle" style="width: 10px; height: 10px; left: 80%; animation-delay: 14s;"></div>
+        <div class="particle" style="width: 4px; height: 4px; left: 40%; animation-delay: 17s;"></div>
+        <div class="particle" style="width: 9px; height: 9px; left: 60%; animation-delay: 1s;"></div>
+        <div class="particle" style="width: 7px; height: 7px; left: 30%; animation-delay: 4s;"></div>
+        <div class="particle" style="width: 12px; height: 12px; left: 70%; animation-delay: 7s;"></div>
+        <div class="particle" style="width: 5px; height: 5px; left: 10%; animation-delay: 10s;"></div>
+        <div class="particle" style="width: 8px; height: 8px; left: 90%; animation-delay: 13s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 50%; animation-delay: 16s;"></div>
+        <div class="particle" style="width: 11px; height: 11px; left: 12%; animation-delay: 19s;"></div>
     </div>
     
     <script>
-    // JavaScript para GARANTIR que as partículas apareçam
-    function forceParticles() {
+    // JavaScript para criar partículas adicionais
+    function createAdditionalParticles() {
         const container = document.getElementById('particles-container');
         if (container) {
-            container.style.display = 'block';
-            container.style.visibility = 'visible';
-            container.style.zIndex = '-1';
-            
-            // Criar partículas adicionais dinamicamente
-            for (let i = 0; i < 30; i++) {
+            // Criar 25 partículas adicionais
+            for (let i = 0; i < 25; i++) {
                 const particle = document.createElement('div');
                 particle.className = 'particle';
                 
-                const size = Math.random() * 12 + 4;
+                const size = Math.random() * 8 + 4; // 4px a 12px
                 particle.style.width = size + 'px';
                 particle.style.height = size + 'px';
                 particle.style.left = Math.random() * 100 + '%';
@@ -880,9 +849,8 @@ def main():
     }
     
     // Executar quando a página carregar
-    document.addEventListener('DOMContentLoaded', forceParticles);
-    setTimeout(forceParticles, 1000);
-    setInterval(forceParticles, 5000);
+    document.addEventListener('DOMContentLoaded', createAdditionalParticles);
+    setTimeout(createAdditionalParticles, 1000);
     </script>
     """, unsafe_allow_html=True)
     
@@ -989,7 +957,7 @@ def main():
                 success_full, sheet_name = copy_full_csv_to_sheets(df_original, filename)
                 
                 if success_full:
-                    st.success(f"✅ CSV completo colado na aba: {sheet_name}")
+                    st.success(f"✅ CSV completo colado: {sheet_name}")
                 
                 processed_result = process_trading_data(df_original, filename)
                 
@@ -1023,16 +991,12 @@ def main():
         area_chart = create_area_chart(display_data)
         if area_chart is not None:
             st.altair_chart(area_chart, use_container_width=True)
-        else:
-            st.warning("Gráfico de área não pôde ser gerado")
         
         # Heatmap
         st.subheader("🔥 Heatmap de Atividade")
         heatmap_chart = create_trading_heatmap(display_data)
         if heatmap_chart is not None:
             st.altair_chart(heatmap_chart, use_container_width=True)
-        else:
-            st.warning("Heatmap não pôde ser gerado")
         
         # Gráficos adicionais
         st.subheader("📊 Análise Detalhada")
