@@ -376,7 +376,7 @@ def create_histogram_chart(df):
         ).properties(
             height=500,
             title=\'Distribuição dos Resultados\'
-        )       
+        )
         return chart
         
     except Exception:
