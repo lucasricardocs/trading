@@ -63,16 +63,85 @@ def load_data_from_sheets():
         data = worksheet.get_all_records()
         
         if not data:
+            st.info("ℹ️ Aba 'dados' está vazia")
             return None
         
         df = pd.DataFrame(data)
-        df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
-        df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
-        df = df.dropna(subset=['Data', 'Total'])
         
-        return df
+        # Se a aba 'dados' tem a estrutura completa, processar como CSV
+        if 'Abertura' in df.columns or 'Fechamento' in df.columns:
+            # Procurar coluna de data
+            date_col = None
+            for col in df.columns:
+                if any(word in col for word in ['Abertura', 'Fechamento', 'Data']):
+                    date_col = col
+                    break
+            
+            # Procurar coluna total
+            total_col = None
+            for col in df.columns:
+                if any(word in col for word in ['Total', 'total']):
+                    total_col = col
+                    break
+            
+            if date_col is None or total_col is None:
+                st.error("❌ Colunas necessárias não encontradas")
+                return None
+            
+            # Filtrar dados válidos
+            df = df[df[date_col].notna() & (df[date_col] != '')]
+            df = df[df[total_col].notna() & (df[total_col] != '')]
+            
+            # Converter data
+            def extract_date(date_str):
+                try:
+                    if isinstance(date_str, str):
+                        date_part = date_str.split(' ')[0]
+                        return pd.to_datetime(date_part, format='%d/%m/%Y', errors='coerce')
+                    else:
+                        return pd.to_datetime(date_str, errors='coerce')
+                except:
+                    return pd.NaT
+            
+            df['Data'] = df[date_col].apply(extract_date)
+            
+            # Converter total
+            def convert_total(value):
+                try:
+                    if pd.isna(value) or value == '':
+                        return 0
+                    value_str = str(value).strip().replace(',', '.')
+                    value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
+                    return float(value_str) if value_str else 0
+                except:
+                    return 0
+            
+            df['Total'] = df[total_col].apply(convert_total)
+            
+            # Remover dados inválidos
+            df = df.dropna(subset=['Data'])
+            df = df[df['Total'] != 0]
+            
+            # Agrupar por data
+            daily_data = df.groupby('Data').agg({
+                'Total': 'sum'
+            }).reset_index()
+            
+            return daily_data
+            
+        else:
+            # Estrutura simples (Data, Total)
+            if 'Data' in df.columns and 'Total' in df.columns:
+                df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
+                df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
+                df = df.dropna(subset=['Data', 'Total'])
+                return df
+            else:
+                st.error("❌ Estrutura de dados não reconhecida")
+                return None
+        
     except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
+        st.error(f"❌ Erro ao carregar dados: {e}")
         return None
 
 # --- FUNÇÃO PARA COLAR DADOS DO CSV ---
@@ -256,8 +325,74 @@ def copy_csv_to_sheets(uploaded_file, filename=None):
         return False, f"Erro: {str(e)}"
 
 # --- PROCESSAR DADOS PARA DASHBOARD ---
+def process_trading_data(df):
+    """Processa os dados de trading do CSV."""
+    # Limpar e processar as colunas
+    df = df.copy()
+    
+    # Limpar nomes das colunas (remover espaços extras)
+    df.columns = df.columns.str.strip()
+    
+    # Procurar pela coluna de Data (pode ser Abertura ou Fechamento)
+    date_col = None
+    for col in df.columns:
+        if any(word in col for word in ['Abertura', 'Fechamento', 'Data', 'data']):
+            date_col = col
+            break
+    
+    if date_col is None:
+        raise ValueError("Coluna de data não encontrada")
+    
+    # Procurar pela coluna Total
+    total_col = None
+    for col in df.columns:
+        if 'Total' in col or 'total' in col:
+            total_col = col
+            break
+    
+    if total_col is None:
+        raise ValueError("Coluna de total não encontrada")
+    
+    # Filtrar apenas linhas que têm data válida (não vazias)
+    df = df[df[date_col].notna() & (df[date_col] != '')]
+    
+    # Converter Data para datetime - extrair apenas a parte da data
+    def extract_date(date_str):
+        try:
+            # Se for string, pegar apenas os primeiros 10 caracteres (DD/MM/YYYY)
+            if isinstance(date_str, str):
+                date_part = date_str.split(' ')[0]  # Pegar só a parte da data
+                return pd.to_datetime(date_part, format='%d/%m/%Y', errors='coerce')
+            else:
+                return pd.to_datetime(date_str, errors='coerce')
+        except:
+            return pd.NaT
+    
+    df['Data'] = df[date_col].apply(extract_date)
+    
+    # Converter Total para numérico
+    if df[total_col].dtype == 'object':
+        # Remover espaços, substituir vírgulas por pontos
+        df['Total'] = df[total_col].astype(str).str.strip()
+        df['Total'] = df['Total'].str.replace(',', '.')
+        # Remover caracteres não numéricos exceto - e .
+        df['Total'] = df['Total'].str.replace(r'[^\d\-\.]', '', regex=True)
+        df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
+    else:
+        df['Total'] = pd.to_numeric(df[total_col], errors='coerce')
+    
+    # Remover linhas com datas ou totais inválidos
+    df = df.dropna(subset=['Data', 'Total'])
+    
+    # Agrupar por data para somar os resultados do dia
+    daily_data = df.groupby('Data').agg({
+        'Total': 'sum'
+    }).reset_index()
+    
+    return daily_data
+
 def process_data_for_dashboard(uploaded_file, filename=None):
-    """Processa dados do CSV para o dashboard."""
+    """Processa dados do CSV para o dashboard usando pandas."""
     try:
         # Ler CSV com pandas
         encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
@@ -280,98 +415,10 @@ def process_data_for_dashboard(uploaded_file, filename=None):
         if df_original is None:
             return pd.DataFrame(), "Erro ao ler CSV"
         
-        df = df_original.copy()
+        # Processar dados usando a função existente
+        processed_df = process_trading_data(df_original)
         
-        if df.empty:
-            return pd.DataFrame(), "CSV vazio"
-        
-        df.columns = df.columns.str.strip()
-        
-        # Procurar coluna Total
-        total_col = None
-        for col in df.columns:
-            if any(word in col.lower() for word in ['total', 'resultado', 'valor', 'saldo']):
-                total_col = col
-                break
-        
-        if total_col is None:
-            return pd.DataFrame(), "Coluna Total não encontrada"
-        
-        # Filtrar linhas válidas
-        df = df[df[total_col].notna() & (df[total_col] != '') & (df[total_col] != 'nan')]
-        
-        if df.empty:
-            return pd.DataFrame(), "Nenhuma linha válida"
-        
-        def convert_total(value):
-            try:
-                if pd.isna(value) or value == '' or str(value).lower() == 'nan':
-                    return 0
-                
-                value_str = str(value).strip()
-                value_str = value_str.replace('R$', '').replace('$', '').strip()
-                value_str = value_str.replace(',', '.')
-                value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
-                
-                return float(value_str) if value_str else 0
-            except:
-                return 0
-        
-        df['Total'] = df[total_col].apply(convert_total)
-        
-        # Criar data automaticamente
-        data_arquivo = None
-        if filename:
-            try:
-                patterns = [
-                    r'(\d{1,2})(\w{3})(\d{2})',
-                    r'(\d{1,2})-(\d{1,2})-(\d{2,4})',
-                    r'(\d{1,2})(\d{2})(\d{2,4})',
-                    r'(\d{4})-(\d{1,2})-(\d{1,2})',
-                ]
-                
-                meses = {
-                    'jan': '01', 'fev': '02', 'mar': '03', 'abr': '04',
-                    'mai': '05', 'jun': '06', 'jul': '07', 'ago': '08',
-                    'set': '09', 'out': '10', 'nov': '11', 'dez': '12'
-                }
-                
-                filename_lower = filename.lower()
-                
-                for pattern in patterns:
-                    match = re.search(pattern, filename_lower)
-                    if match:
-                        if any(mes in filename_lower for mes in meses.keys()):
-                            dia, mes_abr, ano = match.groups()
-                            mes = meses.get(mes_abr, '06')
-                            ano = f"20{ano}" if len(ano) == 2 else ano
-                            data_arquivo = pd.to_datetime(f"{dia}/{mes}/{ano}", format='%d/%m/%Y')
-                        else:
-                            if len(match.groups()) == 3:
-                                p1, p2, p3 = match.groups()
-                                try:
-                                    if len(p3) == 4:
-                                        data_arquivo = pd.to_datetime(f"{p1}/{p2}/{p3}", format='%d/%m/%Y')
-                                    else:
-                                        ano_completo = f"20{p3}"
-                                        data_arquivo = pd.to_datetime(f"{p1}/{p2}/{ano_completo}", format='%d/%m/%Y')
-                                except:
-                                    continue
-                        break
-            except:
-                pass
-        
-        if data_arquivo is None:
-            data_arquivo = pd.Timestamp.now().normalize()
-        
-        df['Data'] = data_arquivo
-        
-        # Agrupar por data
-        daily_data = df.groupby('Data').agg({
-            'Total': 'sum'
-        }).reset_index()
-        
-        return daily_data, "Dados processados"
+        return processed_df, f"Processados {len(processed_df)} dias de trading"
         
     except Exception as e:
         return pd.DataFrame(), f"Erro: {str(e)}"
@@ -393,15 +440,16 @@ def add_to_dados_sheet(df):
             worksheet = spreadsheet.add_worksheet(title=WORKSHEET_NAME, rows=1000, cols=10)
             worksheet.update('A1', [['Data', 'Total']])
         
-        # Verificar dados existentes
+        # Verificar se já existem dados
         existing_data = worksheet.get_all_records()
         existing_dates = set()
         
         if existing_data:
             for row in existing_data:
                 try:
-                    date_obj = pd.to_datetime(row['Data'], format='%d/%m/%Y')
-                    existing_dates.add(date_obj.date())
+                    if 'Data' in row:
+                        date_obj = pd.to_datetime(row['Data'], format='%d/%m/%Y')
+                        existing_dates.add(date_obj.date())
                 except:
                     continue
         
@@ -416,12 +464,13 @@ def add_to_dados_sheet(df):
             if dates_to_add:
                 new_data = new_data[new_data['Data'].dt.date.isin(dates_to_add)]
             else:
-                return True  # Dados já existem
+                st.info("ℹ️ Dados já existem na aba 'dados'")
+                return True
         
         if new_data.empty:
             return True
         
-        # Adicionar dados
+        # Preparar dados para inserção
         rows_to_add = []
         for _, row in new_data.iterrows():
             rows_to_add.append([
@@ -430,10 +479,12 @@ def add_to_dados_sheet(df):
             ])
         
         worksheet.append_rows(rows_to_add)
+        st.success(f"✅ {len(rows_to_add)} dias adicionados à aba 'dados'")
+        
         return True
         
     except Exception as e:
-        st.error(f"Erro ao adicionar à aba dados: {e}")
+        st.error(f"❌ Erro ao adicionar à aba dados: {e}")
         return False
 
 # --- Funções de Filtro ---
@@ -480,14 +531,6 @@ def create_statistics_container(df):
         maior_perda = df['Total'].min() if not df.empty else 0
         
         media_diaria = df[df['Total'] != 0]['Total'].mean() if len(df[df['Total'] != 0]) > 0 else 0
-        
-        st.markdown("""
-        <div style="background: rgba(255, 255, 255, 0.1); 
-                    backdrop-filter: blur(20px); padding: 2rem; border-radius: 15px; margin: 1rem 0; 
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);">
-            <h3 style="color: #333; text-align: center; margin-bottom: 1.5rem;">📊 Estatísticas de Trading</h3>
-        </div>
-        """, unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -641,6 +684,44 @@ def create_radial_chart(df):
     except Exception:
         return None
 
+def create_simple_heatmap(df):
+    """Cria um heatmap simplificado caso o principal falhe."""
+    try:
+        df_year = df.copy()
+        current_year = df_year['Data'].dt.year.max()
+        
+        # Criar grid simples
+        df_year['day_of_week'] = df_year['Data'].dt.dayofweek
+        df_year['week'] = df_year['Data'].dt.isocalendar().week
+        
+        # Mapear dias da semana
+        day_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+        df_year['day_name'] = df_year['day_of_week'].map(lambda x: day_names[x])
+        
+        chart = alt.Chart(df_year).mark_rect(
+            stroke='white',
+            strokeWidth=1
+        ).encode(
+            x=alt.X('week:O', title='Semana'),
+            y=alt.Y('day_name:N', sort=day_names, title='Dia'),
+            color=alt.Color('Total:Q',
+                scale=alt.Scale(scheme='greens'),
+                title='Resultado (R$)'),
+            tooltip=[
+                alt.Tooltip('Data:T', format='%d/%m/%Y'),
+                alt.Tooltip('Total:Q', format=',.2f')
+            ]
+        ).properties(
+            width=600,
+            height=200,
+            title=f'Heatmap de Trading - {current_year}'
+        )
+        
+        return chart
+    except Exception as e:
+        st.error(f"Erro no heatmap simplificado: {e}")
+        return None
+
 def create_trading_heatmap(df):
     """Cria um gráfico de heatmap estilo GitHub para a atividade de trading."""
     try:
@@ -689,7 +770,7 @@ def create_trading_heatmap(df):
         full_df['is_current_year'] = full_df['Data'].dt.year == current_year
         full_df['display_total'] = full_df['Total'].where(full_df['is_current_year'], None)
         
-        # Criar heatmap
+        # Criar heatmap estilo GitHub
         chart = alt.Chart(full_df).mark_rect(
             stroke='white', strokeWidth=1, cornerRadius=2
         ).encode(
@@ -713,7 +794,7 @@ def create_trading_heatmap(df):
                 alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
             ]
         ).properties(
-            height=500, 
+            height=180, 
             title=f'Atividade de Trading - {current_year}'
         ).configure_title(
             fontSize=16,
@@ -721,7 +802,8 @@ def create_trading_heatmap(df):
         )
         
         return chart
-    except Exception:
+    except Exception as e:
+        st.error(f"Erro ao criar heatmap: {e}")
         return None
 
 # --- Função Principal ---
@@ -988,11 +1070,16 @@ def main():
         if area_chart is not None:
             st.altair_chart(area_chart, use_container_width=True)
         
-        # Heatmap
+        # Heatmap estilo GitHub
         st.subheader("🔥 Heatmap de Atividade")
         heatmap_chart = create_trading_heatmap(display_data)
         if heatmap_chart is not None:
             st.altair_chart(heatmap_chart, use_container_width=True)
+        else:
+            # Fallback para heatmap simplificado
+            simple_heatmap = create_simple_heatmap(display_data)
+            if simple_heatmap is not None:
+                st.altair_chart(simple_heatmap, use_container_width=True)
         
         # Gráficos adicionais
         st.subheader("📊 Análise Detalhada")
@@ -1012,8 +1099,27 @@ def main():
                 st.altair_chart(histogram_chart, use_container_width=True)
             if radial_chart is not None:
                 st.altair_chart(radial_chart, use_container_width=True)
+                
+        # Mostrar dados processados
+        with st.expander("📊 Dados processados por dia", expanded=False):
+            display_df = display_data.copy()
+            display_df['Data'] = display_df['Data'].dt.strftime('%d/%m/%Y')
+            display_df['Total'] = display_df['Total'].apply(lambda x: f"R$ {x:,.2f}")
+            st.dataframe(display_df, use_container_width=True)
+            
     else:
         st.info("📋 Nenhum dado encontrado. Faça upload de um arquivo CSV para começar.")
+        
+        # Mostrar exemplo do formato esperado
+        st.subheader("Formato esperado do arquivo")
+        example_data = {
+            'Subconta': ['12345', '12345', '12345'],
+            'Ativo': ['WDON25', 'WDON25', 'WDON25'],
+            'Abertura': ['16/06/2025 10:30', '16/06/2025 14:15', '16/06/2025 15:45'],
+            'Total': ['80,00', '-55,00', '-405,00']
+        }
+        st.dataframe(pd.DataFrame(example_data))
+        st.caption("O arquivo deve conter pelo menos as colunas de data (Abertura/Fechamento) e 'Total'. Outras colunas são opcionais.")
 
 if __name__ == "__main__":
     main()
