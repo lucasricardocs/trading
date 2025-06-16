@@ -21,7 +21,7 @@ def load_data_from_sheets():
         conn = st.connection("gsheets", type=GSheetsConnection)
         
         # Ler dados da planilha
-        df = conn.read(worksheet="Sheet1", usecols=[0, 1], ttl=60)
+        df = conn.read(worksheet="Sheet1", usecols=[0, 1])
         
         if df.empty:
             return None
@@ -153,12 +153,12 @@ def create_statistics_container(df):
         # Média diária
         media_diaria = df[df['Total'] != 0]['Total'].mean() if len(df[df['Total'] != 0]) > 0 else 0
         
-        # Container com estatísticas estilizado
+        # Container com estatísticas
         st.markdown("""
         <div style="background: linear-gradient(135deg, rgba(255, 107, 53, 0.15) 0%, rgba(247, 147, 30, 0.15) 100%); 
                     backdrop-filter: blur(20px); padding: 2rem; border-radius: 15px; margin: 1rem 0; 
                     box-shadow: 0 8px 32px rgba(255, 107, 53, 0.3); border: 1px solid rgba(255, 107, 53, 0.2);">
-            <h3 style="color: white; text-align: center; margin-bottom: 1.5rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">🔥 Estatísticas de Trading</h3>
+            <h3 style="color: white; text-align: center; margin-bottom: 1.5rem;">🔥 Estatísticas de Trading</h3>
         </div>
         """, unsafe_allow_html=True)
         
@@ -360,7 +360,7 @@ def main():
     st.title("📈 Trading Activity Dashboard")
     st.markdown("**Sistema integrado:** Upload CSV → Google Sheets → Visualizações")
     
-    # CSS para tema escuro com efeito de partículas de fogo
+    # CSS para tema escuro com efeito de fogo
     st.markdown("""
     <style>
     .stApp {
