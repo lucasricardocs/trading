@@ -38,6 +38,7 @@ st.set_page_config(
 def get_gspread_client():
     try:
         credentials_info = dict(st.secrets["google_credentials"])
+        st.info("Debug: Credenciais carregadas.")
         credentials = Credentials.from_service_account_info(
             credentials_info,
             scopes=[
@@ -48,6 +49,7 @@ def get_gspread_client():
         return gspread.authorize(credentials)
     except Exception as e:
         st.error(f"Erro na autenticação: {e}")
+        st.error("Verifique se as credenciais estão configuradas corretamente no `st.secrets`.")
         return None
 
 # --- Função corrigida para ler CSV com diferentes encodings ---
@@ -340,7 +342,7 @@ def create_trading_heatmap(df):
                 alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
             ]
         ).properties(
-            height=180,
+            height=500,
             title=f'Atividade de Trading - {current_year}'
         )
         
@@ -372,10 +374,9 @@ def create_histogram_chart(df):
                 alt.Tooltip('Total:Q', bin=True, title='Faixa de Resultado')
             ]
         ).properties(
-            height=250,
-            title='Distribuição dos Resultados'
-        )
-        
+            height=500,
+            title=\'Distribuição dos Resultados\'
+        )       
         return chart
         
     except Exception:
@@ -424,12 +425,10 @@ def create_weekday_performance_chart(df):
                 alt.Tooltip('Dia_Semana:O', title='Dia'),
                 alt.Tooltip('Media:Q', format=',.2f', title='Resultado Médio'),
                 alt.Tooltip('Trades:Q', title='Número de Trades')
-            ]
-        ).properties(
-            height=250,
-            title='Performance por Dia da Semana'
-        )
-        
+            ]        ).properties(
+            height=500,
+            title=\'Performance por Dia da Semana\'
+        )        
         return chart
         
     except Exception:
@@ -497,8 +496,8 @@ def create_line_chart(df):
                 alt.Tooltip('Acumulado:Q', format=',.2f', title='Acumulado')
             ]
         ).properties(
-            height=300,
-            title='Evolução dos Resultados'
+            height=500,
+            title="Evolução dos Resultados"
         )
         
         return chart
@@ -510,6 +509,9 @@ def create_line_chart(df):
 def main():
     st.title("📈 Trading Dashboard")
     
+    # Inicializar a integração com Google Sheets
+    auto_update_sheets_with_csv_data()
+    
     # Upload
     uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
     
@@ -519,6 +521,7 @@ def main():
         # PASSO 1: Copiar para Google Sheets
         st.subheader("📋 Copiando dados para Google Sheets")
         if copy_csv_to_sheets(uploaded_file, filename):
+            st.info("Debug: copy_csv_to_sheets retornou True")
             
             # PASSO 2: Processar dados
             st.subheader("📊 Processando dados para gráficos")
