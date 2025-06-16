@@ -77,9 +77,9 @@ def load_data_from_sheets():
 
 # --- FUNÇÃO PARA COLAR DADOS DO CSV ---
 def copy_csv_to_sheets(uploaded_file, filename=None):
-    """Cola dados do CSV diretamente na planilha Google Sheets."""
+    """Cola dados do CSV garantindo correspondência exata de colunas com Google Sheets."""
     try:
-        st.info("🔄 Iniciando processo de cópia dos dados...")
+        st.info("🔄 Iniciando processo de cópia com correspondência de colunas...")
         
         gc = get_gspread_client()
         if gc is None:
@@ -104,7 +104,7 @@ def copy_csv_to_sheets(uploaded_file, filename=None):
             worksheet = spreadsheet.worksheet(sheet_name)
             st.info("📋 Aba existente encontrada")
         except:
-            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
+            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=30)
             st.success(f"✅ Nova aba criada: {sheet_name}")
         
         # LER O ARQUIVO CSV
@@ -122,7 +122,6 @@ def copy_csv_to_sheets(uploaded_file, filename=None):
                 used_encoding = encoding
                 break
             except Exception as e:
-                st.warning(f"⚠️ Encoding {encoding} falhou: {e}")
                 continue
         
         if csv_content is None:
@@ -135,29 +134,53 @@ def copy_csv_to_sheets(uploaded_file, filename=None):
         csv_lines = csv_content.split('\n')
         st.info(f"📄 Total de linhas no arquivo: {len(csv_lines)}")
         
-        # Verificar se tem pelo menos 5 linhas
-        if len(csv_lines) < 5:
-            st.error("❌ Arquivo não tem dados suficientes (mínimo 5 linhas)")
+        # Verificar se tem pelo menos 6 linhas (linha 5 + dados)
+        if len(csv_lines) < 6:
+            st.error("❌ Arquivo não tem dados suficientes (mínimo 6 linhas)")
             return False, "Arquivo muito pequeno"
         
-        # Linha 5 é o cabeçalho (índice 4)
+        # LINHA 5 DO CSV = CABEÇALHO (índice 4)
         header_line = csv_lines[4].strip()
         if not header_line:
             st.error("❌ Linha 5 (cabeçalho) está vazia")
             return False, "Cabeçalho vazio"
         
-        # Processar cabeçalho
-        header_cells = []
+        # Processar cabeçalho do CSV
+        csv_header = []
         for cell in header_line.split(';'):
             clean_cell = cell.strip().strip('"').strip()
-            header_cells.append(clean_cell)
+            csv_header.append(clean_cell)
         
-        st.success(f"✅ Cabeçalho processado: {len(header_cells)} colunas")
-        st.write("📋 Colunas:", header_cells)
+        st.success(f"✅ Cabeçalho CSV (linha 5): {csv_header}")
         
-        # Processar dados (linhas 6 em diante)
-        data_lines = csv_lines[5:]
-        data_rows = []
+        # Verificar cabeçalho existente no Google Sheets
+        try:
+            existing_data = worksheet.get_all_values()
+            if existing_data:
+                sheets_header = existing_data[0]
+                st.info(f"📊 Cabeçalho Google Sheets (linha 1): {sheets_header}")
+                
+                # Verificar se os cabeçalhos são iguais
+                if csv_header != sheets_header:
+                    st.warning("⚠️ Cabeçalhos diferentes! Atualizando Google Sheets...")
+                    # Atualizar cabeçalho do Google Sheets com o do CSV
+                    worksheet.update('A1', [csv_header])
+                    st.success("✅ Cabeçalho do Google Sheets atualizado")
+                else:
+                    st.success("✅ Cabeçalhos são idênticos")
+            else:
+                # Planilha vazia - inserir cabeçalho do CSV
+                st.info("📝 Planilha vazia - inserindo cabeçalho do CSV")
+                worksheet.update('A1', [csv_header])
+                st.success("✅ Cabeçalho inserido na linha 1")
+        except Exception as e:
+            st.error(f"Erro ao verificar cabeçalho: {e}")
+            # Inserir cabeçalho mesmo assim
+            worksheet.update('A1', [csv_header])
+        
+        # Processar dados (linhas 6 em diante do CSV)
+        data_lines = csv_lines[5:]  # Linhas 6 em diante (índice 5+)
+        linhas_preenchidas = []
         
         for i, line in enumerate(data_lines, 6):
             line = line.strip()
@@ -169,48 +192,41 @@ def copy_csv_to_sheets(uploaded_file, filename=None):
                 
                 # Verificar se a linha tem pelo menos uma célula com conteúdo
                 if any(cell for cell in cells):
-                    # Ajustar número de colunas
-                    while len(cells) < len(header_cells):
+                    # Ajustar para ter exatamente o mesmo número de colunas que o cabeçalho
+                    while len(cells) < len(csv_header):
                         cells.append('')
-                    if len(cells) > len(header_cells):
-                        cells = cells[:len(header_cells)]
-                    data_rows.append(cells)
+                    if len(cells) > len(csv_header):
+                        cells = cells[:len(csv_header)]
+                    
+                    linhas_preenchidas.append(cells)
         
-        st.success(f"✅ Dados processados: {len(data_rows)} linhas com conteúdo")
+        st.success(f"✅ Linhas preenchidas processadas: {len(linhas_preenchidas)}")
         
-        if len(data_rows) == 0:
-            st.warning("⚠️ Nenhuma linha de dados encontrada")
+        if len(linhas_preenchidas) == 0:
+            st.warning("⚠️ Nenhuma linha preenchida encontrada abaixo da linha 5")
             return False, "Sem dados para inserir"
         
-        # Verificar dados existentes na planilha
-        try:
-            existing_data = worksheet.get_all_values()
-            st.info(f"📊 Dados existentes na planilha: {len(existing_data)} linhas")
-        except:
-            existing_data = []
-            st.info("📊 Planilha vazia")
+        # Encontrar primeira linha vazia (abaixo do cabeçalho)
+        existing_data = worksheet.get_all_values()
+        primeira_linha_vazia = 2  # Começar da linha 2 (abaixo do cabeçalho)
         
-        # Determinar onde inserir os dados
-        if not existing_data:
-            # Planilha vazia - inserir cabeçalho e dados
-            st.info("📝 Inserindo cabeçalho na linha 1")
-            worksheet.update('A1', [header_cells])
-            first_data_row = 2
-        else:
-            # Planilha tem dados - encontrar primeira linha vazia
-            first_data_row = len(existing_data) + 1
-            # Verificar se precisa atualizar cabeçalho
-            if existing_data[0] != header_cells:
-                st.info("📝 Atualizando cabeçalho")
-                worksheet.update('A1', [header_cells])
+        if len(existing_data) > 1:  # Se há mais que só o cabeçalho
+            for i in range(1, len(existing_data)):  # Começar da linha 2 (índice 1)
+                row = existing_data[i]
+                # Verificar se a linha está completamente vazia
+                if not any(cell.strip() for cell in row if cell):
+                    primeira_linha_vazia = i + 1  # +1 porque gspread usa indexação 1-based
+                    break
+                else:
+                    primeira_linha_vazia = i + 2  # Próxima linha após a última preenchida
         
-        st.info(f"📍 Inserindo dados a partir da linha: {first_data_row}")
+        st.info(f"📍 Inserindo dados a partir da linha: {primeira_linha_vazia}")
         
-        # Inserir dados
-        if data_rows:
-            # Calcular range
-            num_rows = len(data_rows)
-            num_cols = len(header_cells)
+        # Inserir as linhas preenchidas
+        if linhas_preenchidas:
+            # Calcular range para inserção
+            num_rows = len(linhas_preenchidas)
+            num_cols = len(csv_header)
             
             # Converter número para letra da coluna
             def num_to_col_letter(num):
@@ -222,17 +238,18 @@ def copy_csv_to_sheets(uploaded_file, filename=None):
                 return result
             
             end_col = num_to_col_letter(num_cols)
-            end_row = first_data_row + num_rows - 1
-            range_name = f'A{first_data_row}:{end_col}{end_row}'
+            end_row = primeira_linha_vazia + num_rows - 1
+            range_name = f'A{primeira_linha_vazia}:{end_col}{end_row}'
             
             st.info(f"📊 Inserindo no range: {range_name}")
+            st.info(f"📋 Inserindo {num_rows} linhas com {num_cols} colunas cada")
             
             # Inserir dados na planilha
-            worksheet.update(range_name, data_rows, value_input_option='RAW')
+            worksheet.update(range_name, linhas_preenchidas, value_input_option='RAW')
             
-            st.success(f"✅ {num_rows} linhas inseridas com sucesso!")
+            st.success(f"✅ {num_rows} linhas inseridas com correspondência exata de colunas!")
         
-        return True, f"{sheet_name} - {len(data_rows)} linhas inseridas"
+        return True, f"{sheet_name} - {len(linhas_preenchidas)} linhas inseridas com colunas correspondentes"
         
     except Exception as e:
         st.error(f"❌ Erro durante a cópia: {str(e)}")
@@ -625,43 +642,54 @@ def create_radial_chart(df):
         return None
 
 def create_trading_heatmap(df):
-    """Cria heatmap estilo GitHub."""
-    if df is None or df.empty:
-        return None
-    
+    """Cria um gráfico de heatmap estilo GitHub para a atividade de trading."""
     try:
+        if df.empty or 'Data' not in df.columns or 'Total' not in df.columns:
+            st.warning("Dados insuficientes para gerar o heatmap.")
+            return None
+
+        # Determinar o ano atual ou mais recente dos dados
         current_year = df['Data'].dt.year.max()
         df_year = df[df['Data'].dt.year == current_year].copy()
 
         if df_year.empty:
+            st.warning(f"Sem dados para o ano {current_year}.")
             return None
 
+        # Criar range completo de datas para o ano
         start_date = pd.Timestamp(f'{current_year}-01-01')
         end_date = pd.Timestamp(f'{current_year}-12-31')
         
+        # Ajustar para começar na segunda-feira
         start_weekday = start_date.weekday()
         if start_weekday > 0:
             start_date = start_date - pd.Timedelta(days=start_weekday)
         
+        # Ajustar para terminar no domingo
         end_weekday = end_date.weekday()
         if end_weekday < 6:
             end_date = end_date + pd.Timedelta(days=6-end_weekday)
         
         all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
         
+        # DataFrame com todas as datas
         full_df = pd.DataFrame({'Data': all_dates})
         full_df = full_df.merge(df_year[['Data', 'Total']], on='Data', how='left')
         full_df['Total'] = full_df['Total'].fillna(0)
         
+        # Adicionar informações de semana e dia
         full_df['week'] = ((full_df['Data'] - start_date).dt.days // 7)
         full_df['day_of_week'] = full_df['Data'].dt.weekday
         
+        # Mapear nomes dos dias
         day_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
         full_df['day_name'] = full_df['day_of_week'].map(lambda x: day_names[x])
         
+        # Marcar dias do ano atual
         full_df['is_current_year'] = full_df['Data'].dt.year == current_year
         full_df['display_total'] = full_df['Total'].where(full_df['is_current_year'], None)
         
+        # Criar heatmap
         chart = alt.Chart(full_df).mark_rect(
             stroke='white', strokeWidth=1, cornerRadius=2
         ).encode(
@@ -849,7 +877,7 @@ def main():
     
     st.title("📈 Trading Activity Dashboard")
     
-    # SIDEBAR COM FILTROS (SEM CUSTOS)
+    # SIDEBAR COM FILTROS
     with st.sidebar:
         st.title("🎛️ Controles")
         
