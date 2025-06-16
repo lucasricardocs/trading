@@ -22,16 +22,19 @@ WORKSHEET_NAME = 'dados'
 st.set_page_config(
     page_title="Trading Activity Dashboard",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # --- Inicialização de Session State ---
-def initialize_costs():
-    """Inicializa os custos padrão no session state."""
+def initialize_session_state():
+    """Inicializa todos os valores do session state."""
     if 'custo_wdo' not in st.session_state:
         st.session_state.custo_wdo = 0.99
     if 'custo_win' not in st.session_state:
         st.session_state.custo_win = 0.39
+    if 'filtered_data' not in st.session_state:
+        st.session_state.filtered_data = None
 
 # --- Funções de Conexão com Google Sheets ---
 @st.cache_resource
@@ -73,6 +76,44 @@ def load_data_from_sheets():
         return df
     except Exception:
         return None
+
+def copy_full_csv_to_sheets(df_original, filename=None):
+    """Copia todos os dados do CSV original para uma aba específica no Google Sheets."""
+    try:
+        gc = get_gspread_client()
+        if gc is None:
+            return False, "Erro de conexão"
+        
+        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        
+        if filename:
+            sheet_name = filename.replace('.csv', '').replace('.CSV', '')[:30]
+        else:
+            sheet_name = f"CSV_{datetime.now().strftime('%d%m%Y_%H%M')}"
+        
+        try:
+            worksheet = spreadsheet.worksheet(sheet_name)
+            worksheet.clear()
+        except:
+            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=26)
+        
+        data_to_insert = [df_original.columns.tolist()]
+        
+        for _, row in df_original.iterrows():
+            row_data = []
+            for value in row:
+                if pd.isna(value):
+                    row_data.append('')
+                else:
+                    row_data.append(str(value))
+            data_to_insert.append(row_data)
+        
+        worksheet.update('A1', data_to_insert)
+        
+        return True, sheet_name
+        
+    except Exception as e:
+        return False, str(e)
 
 def append_data_to_sheets(df):
     """Adiciona novos dados à aba 'dados'."""
@@ -155,14 +196,12 @@ def process_trading_data(df, filename=None):
         df = df.copy()
         
         if df.empty:
-            return pd.DataFrame()
+            return pd.DataFrame(), "Erro"
         
         df.columns = df.columns.str.strip()
         
-        # Detectar custo
         custo_por_contrato, asset_info = detect_asset_cost(df)
         
-        # Procurar coluna Total
         total_col = None
         for col in df.columns:
             if any(word in col.lower() for word in ['total', 'resultado', 'valor', 'saldo']):
@@ -170,9 +209,8 @@ def process_trading_data(df, filename=None):
                 break
         
         if total_col is None:
-            return pd.DataFrame()
+            return pd.DataFrame(), "Erro"
         
-        # Procurar colunas de quantidade
         qtd_compra_col = None
         qtd_venda_col = None
         
@@ -185,7 +223,7 @@ def process_trading_data(df, filename=None):
         df = df[df[total_col].notna() & (df[total_col] != '') & (df[total_col] != 'nan')]
         
         if df.empty:
-            return pd.DataFrame()
+            return pd.DataFrame(), "Erro"
         
         def convert_total(value):
             try:
@@ -211,7 +249,6 @@ def process_trading_data(df, filename=None):
         
         df['Total'] = df[total_col].apply(convert_total)
         
-        # Calcular custos
         if qtd_compra_col and qtd_venda_col:
             df['Qtd_Compra'] = df[qtd_compra_col].apply(convert_quantity)
             df['Qtd_Venda'] = df[qtd_venda_col].apply(convert_quantity)
@@ -232,9 +269,8 @@ def process_trading_data(df, filename=None):
         df = df[df['Total_Contratos'] > 0]
         
         if df.empty:
-            return pd.DataFrame()
+            return pd.DataFrame(), "Erro"
         
-        # Criar data automaticamente
         data_arquivo = None
         if filename:
             try:
@@ -293,10 +329,33 @@ def process_trading_data(df, filename=None):
     except Exception:
         return pd.DataFrame(), "Erro"
 
+# --- Funções de Filtro ---
+def filter_data_by_date(df, year_filter, month_filter):
+    """Filtra dados por ano e mês."""
+    if df is None or df.empty:
+        return df
+    
+    filtered_df = df.copy()
+    
+    if year_filter != "Todos":
+        filtered_df = filtered_df[filtered_df['Data'].dt.year == year_filter]
+    
+    if month_filter != "Todos":
+        month_num = {
+            'Janeiro': 1, 'Fevereiro': 2, 'Março': 3, 'Abril': 4,
+            'Maio': 5, 'Junho': 6, 'Julho': 7, 'Agosto': 8,
+            'Setembro': 9, 'Outubro': 10, 'Novembro': 11, 'Dezembro': 12
+        }
+        if month_filter in month_num:
+            filtered_df = filtered_df[filtered_df['Data'].dt.month == month_num[month_filter]]
+    
+    return filtered_df
+
 # --- Funções de Visualização ---
 def create_statistics_container(df):
     """Cria container com estatísticas detalhadas."""
-    if df.empty:
+    if df is None or df.empty:
+        st.warning("⚠️ Sem dados para exibir estatísticas")
         return
     
     try:
@@ -346,7 +405,7 @@ def create_statistics_container(df):
 
 def create_area_chart(df):
     """Cria gráfico de área com evolução acumulada."""
-    if df.empty:
+    if df is None or df.empty:
         return None
     
     try:
@@ -357,7 +416,7 @@ def create_area_chart(df):
         line_color = '#3498db' if final_value >= 0 else '#e74c3c'
         gradient_color = '#3498db' if final_value >= 0 else '#e74c3c'
         
-        return alt.Chart(area_data).mark_area(
+        chart = alt.Chart(area_data).mark_area(
             line={'color': line_color, 'strokeWidth': 2},
             color=alt.Gradient(
                 gradient='linear',
@@ -375,19 +434,30 @@ def create_area_chart(df):
                 alt.Tooltip('Total:Q', format=',.2f', title='Resultado do Dia (R$)'),
                 alt.Tooltip('Acumulado:Q', format=',.2f', title='Acumulado (R$)')
             ]
-        ).properties(height=500, title='Evolução Acumulada dos Resultados')
+        ).properties(
+            height=500, 
+            title='Evolução Acumulada dos Resultados'
+        ).configure_title(
+            fontSize=16,
+            color='white'
+        ).configure_axis(
+            labelColor='white',
+            titleColor='white'
+        )
+        
+        return chart
     except Exception:
         return None
 
 def create_daily_histogram(df):
     """Cria histograma diário."""
-    if df.empty:
+    if df is None or df.empty:
         return None
     
     try:
         hist_data = df.copy().sort_values('Data')
         
-        return alt.Chart(hist_data).mark_bar(
+        chart = alt.Chart(hist_data).mark_bar(
             cornerRadius=2, stroke='white', strokeWidth=1
         ).encode(
             x=alt.X('Data:T', title=None),
@@ -401,13 +471,24 @@ def create_daily_histogram(df):
                 alt.Tooltip('Data:T', format='%d/%m/%Y'),
                 alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
             ]
-        ).properties(height=500, title='Resultado Diário')
+        ).properties(
+            height=500, 
+            title='Resultado Diário'
+        ).configure_title(
+            fontSize=16,
+            color='white'
+        ).configure_axis(
+            labelColor='white',
+            titleColor='white'
+        )
+        
+        return chart
     except Exception:
         return None
 
 def create_radial_chart(df):
     """Cria gráfico radial com dados mensais."""
-    if df.empty:
+    if df is None or df.empty:
         return None
     
     try:
@@ -441,13 +522,21 @@ def create_radial_chart(df):
             text=alt.Text('Mes:N'), color=alt.value('white')
         )
 
-        return (c1 + c2).properties(height=500, title='Total por Mês')
+        chart = (c1 + c2).properties(
+            height=500, 
+            title='Total por Mês'
+        ).configure_title(
+            fontSize=16,
+            color='white'
+        )
+        
+        return chart
     except Exception:
         return None
 
 def create_trading_heatmap(df):
     """Cria heatmap estilo GitHub."""
-    if df.empty:
+    if df is None or df.empty:
         return None
     
     try:
@@ -483,12 +572,12 @@ def create_trading_heatmap(df):
         full_df['is_current_year'] = full_df['Data'].dt.year == current_year
         full_df['display_total'] = full_df['Total'].where(full_df['is_current_year'], None)
         
-        return alt.Chart(full_df).mark_rect(
+        chart = alt.Chart(full_df).mark_rect(
             stroke='white', strokeWidth=1, cornerRadius=2
         ).encode(
             x=alt.X('week:O', title=None, axis=None),
             y=alt.Y('day_name:N', sort=day_names, title=None,
-                   axis=alt.Axis(labelAngle=0, labelFontSize=10, 
+                   axis=alt.Axis(labelAngle=0, labelFontSize=10, labelColor='white',
                                ticks=False, domain=False, grid=False)),
             color=alt.condition(
                 alt.datum.display_total == None,
@@ -505,99 +594,144 @@ def create_trading_heatmap(df):
                 alt.Tooltip('day_name:N', title='Dia'),
                 alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
             ]
-        ).properties(height=500, title=f'Atividade de Trading - {current_year}')
+        ).properties(
+            height=500, 
+            title=f'Atividade de Trading - {current_year}'
+        ).configure_title(
+            fontSize=16,
+            color='white'
+        )
+        
+        return chart
     except Exception:
         return None
 
 # --- Função Principal ---
 def main():
-    initialize_costs()
+    initialize_session_state()
     
-    st.title("📈 Trading Activity Dashboard")
-    
-    # CSS para background com partículas
+    # CSS CORRIGIDO para background com partículas que REALMENTE aparecem
     st.markdown("""
     <style>
+    /* Background principal */
     .stApp {
-        background: radial-gradient(circle at 30% 30%, #2c3e50, #000);
-        background-attachment: fixed;
-        position: relative;
-        overflow-x: hidden;
-        min-height: 100vh;
-        color: white;
-        font-family: Arial, sans-serif;
+        background: radial-gradient(circle at 30% 30%, #2c3e50, #000) !important;
+        background-attachment: fixed !important;
+        position: relative !important;
+        overflow-x: hidden !important;
+        min-height: 100vh !important;
+        color: white !important;
+        font-family: Arial, sans-serif !important;
     }
     
+    /* Container de partículas - FORÇADO para aparecer */
     .particles {
-        position: fixed;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        top: 0;
-        left: 0;
-        pointer-events: none;
-        z-index: -1;
+        position: fixed !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        overflow: hidden !important;
+        top: 0 !important;
+        left: 0 !important;
+        pointer-events: none !important;
+        z-index: 1 !important;
     }
     
+    /* Partículas individuais - FORÇADAS para aparecer */
     .particle {
-        position: absolute;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.8);
-        animation: float 20s infinite linear;
+        position: absolute !important;
+        border-radius: 50% !important;
+        background: rgba(255, 255, 255, 0.9) !important;
+        animation: float 20s infinite linear !important;
+        display: block !important;
+        visibility: visible !important;
     }
     
+    /* Animação CORRIGIDA - partículas sobem da parte inferior */
     @keyframes float {
         0% {
-            transform: translateY(100vh) scale(0.5);
-            opacity: 0;
+            transform: translateY(100vh) scale(0.5) !important;
+            opacity: 0 !important;
+        }
+        10% {
+            opacity: 1 !important;
         }
         50% {
-            opacity: 1;
+            opacity: 1 !important;
+        }
+        90% {
+            opacity: 0.5 !important;
         }
         100% {
-            transform: translateY(-10vh) scale(1.2);
-            opacity: 0;
+            transform: translateY(-10vh) scale(1.2) !important;
+            opacity: 0 !important;
         }
     }
     
+    /* Títulos e textos */
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.8) !important;
     }
     
     .stMarkdown, .stText, p, span {
         color: #e0e0e0 !important;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.8) !important;
     }
     
+    /* Sidebar */
+    .css-1d391kg {
+        background-color: rgba(44, 62, 80, 0.9) !important;
+        backdrop-filter: blur(10px) !important;
+    }
+    
+    /* Botões */
     .stButton > button {
-        background: linear-gradient(45deg, #3498db, #74b9ff);
-        color: white;
-        border: none;
-        box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
-        transition: all 0.3s ease;
+        background: linear-gradient(45deg, #3498db, #74b9ff) !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4) !important;
+        transition: all 0.3s ease !important;
     }
     
     .stButton > button:hover {
-        background: linear-gradient(45deg, #74b9ff, #0984e3);
-        box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6);
-        transform: translateY(-2px);
+        background: linear-gradient(45deg, #74b9ff, #0984e3) !important;
+        box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6) !important;
+        transform: translateY(-2px) !important;
     }
     
+    /* Upload area */
     .stFileUploader > div {
-        background-color: rgba(44, 62, 80, 0.3);
-        border: 2px dashed rgba(255, 255, 255, 0.5);
-        backdrop-filter: blur(10px);
+        background-color: rgba(44, 62, 80, 0.3) !important;
+        border: 2px dashed rgba(255, 255, 255, 0.5) !important;
+        backdrop-filter: blur(10px) !important;
     }
     
-    .stNumberInput > div > div > input {
-        background-color: rgba(44, 62, 80, 0.5);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
+    /* Inputs */
+    .stNumberInput > div > div > input, .stSelectbox > div > div > select {
+        background-color: rgba(44, 62, 80, 0.5) !important;
+        color: white !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    }
+    
+    /* Métricas */
+    .metric-container {
+        background: rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(10px) !important;
+        border-radius: 10px !important;
+        padding: 1rem !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    }
+    
+    /* Forçar visibilidade dos gráficos */
+    .vega-embed, .vega-embed canvas, .vega-embed svg {
+        background: transparent !important;
+        visibility: visible !important;
+        display: block !important;
     }
     </style>
     
-    <div class="particles">
+    <!-- HTML para partículas - GARANTINDO que apareçam -->
+    <div class="particles" id="particles-container">
         <div class="particle" style="width: 10px; height: 10px; left: 20%; animation-delay: 0s;"></div>
         <div class="particle" style="width: 8px; height: 8px; left: 40%; animation-delay: 5s;"></div>
         <div class="particle" style="width: 12px; height: 12px; left: 60%; animation-delay: 10s;"></div>
@@ -618,52 +752,138 @@ def main():
         <div class="particle" style="width: 11px; height: 11px; left: 95%; animation-delay: 11s;"></div>
         <div class="particle" style="width: 7px; height: 7px; left: 5%; animation-delay: 17s;"></div>
         <div class="particle" style="width: 13px; height: 13px; left: 82%; animation-delay: 1s;"></div>
+        <div class="particle" style="width: 4px; height: 4px; left: 12%; animation-delay: 19s;"></div>
+        <div class="particle" style="width: 16px; height: 16px; left: 88%; animation-delay: 1s;"></div>
+        <div class="particle" style="width: 6px; height: 6px; left: 33%; animation-delay: 11s;"></div>
+        <div class="particle" style="width: 8px; height: 8px; left: 67%; animation-delay: 15s;"></div>
+        <div class="particle" style="width: 12px; height: 12px; left: 77%; animation-delay: 4s;"></div>
     </div>
+    
+    <script>
+    // JavaScript para GARANTIR que as partículas apareçam
+    function forceParticles() {
+        const container = document.getElementById('particles-container');
+        if (container) {
+            container.style.display = 'block';
+            container.style.visibility = 'visible';
+            container.style.zIndex = '1';
+            
+            // Criar partículas adicionais dinamicamente
+            for (let i = 0; i < 30; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                
+                const size = Math.random() * 12 + 4;
+                particle.style.width = size + 'px';
+                particle.style.height = size + 'px';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 20 + 's';
+                particle.style.display = 'block';
+                particle.style.visibility = 'visible';
+                
+                container.appendChild(particle);
+            }
+        }
+    }
+    
+    // Executar quando a página carregar
+    document.addEventListener('DOMContentLoaded', forceParticles);
+    setTimeout(forceParticles, 1000);
+    setInterval(forceParticles, 5000);
+    </script>
     """, unsafe_allow_html=True)
     
-    # Configuração de custos
-    col1, col2 = st.columns(2)
-    
-    with col1:
+    # SIDEBAR COM FILTROS
+    with st.sidebar:
+        st.title("🎛️ Controles")
+        
+        st.markdown("---")
+        st.subheader("💰 Configuração de Custos")
+        
         st.session_state.custo_wdo = st.number_input(
-            "💰 Custo WDO (R$)",
+            "Custo WDO (R$)",
             min_value=0.01,
             max_value=10.00,
             value=st.session_state.custo_wdo,
             step=0.01,
             format="%.2f"
         )
-    
-    with col2:
+        
         st.session_state.custo_win = st.number_input(
-            "💰 Custo WIN (R$)",
+            "Custo WIN (R$)",
             min_value=0.01,
             max_value=10.00,
             value=st.session_state.custo_win,
             step=0.01,
             format="%.2f"
         )
+        
+        st.markdown("---")
+        st.subheader("📅 Filtros de Data")
+        
+        # Carregar dados para filtros
+        sheets_data = load_data_from_sheets()
+        
+        if sheets_data is not None and not sheets_data.empty:
+            # Filtro de Ano
+            years_available = sorted(sheets_data['Data'].dt.year.unique(), reverse=True)
+            year_options = ["Todos"] + [int(year) for year in years_available]
+            
+            year_filter = st.selectbox(
+                "Ano",
+                options=year_options,
+                index=0
+            )
+            
+            # Filtro de Mês
+            month_options = ["Todos", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                           "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            
+            month_filter = st.selectbox(
+                "Mês",
+                options=month_options,
+                index=0
+            )
+            
+            # Aplicar filtros
+            filtered_data = filter_data_by_date(sheets_data, year_filter, month_filter)
+            st.session_state.filtered_data = filtered_data
+            
+            # Mostrar informações dos filtros
+            if filtered_data is not None and not filtered_data.empty:
+                st.markdown("---")
+                st.subheader("📊 Resumo Filtrado")
+                st.metric("Registros", len(filtered_data))
+                st.metric("Período", f"{filtered_data['Data'].min().strftime('%d/%m/%Y')} a {filtered_data['Data'].max().strftime('%d/%m/%Y')}")
+                st.metric("Total", f"R$ {filtered_data['Total'].sum():,.2f}")
+        else:
+            st.warning("Sem dados disponíveis")
+            st.session_state.filtered_data = None
+        
+        st.markdown("---")
+        st.subheader("📤 Upload")
     
-    # Carregar dados
-    sheets_data = load_data_from_sheets()
+    # CONTEÚDO PRINCIPAL
+    st.title("📈 Trading Activity Dashboard")
     
-    # Upload
-    uploaded_file = st.file_uploader(
-        "📤 Upload CSV",
-        type=['csv']
-    )
+    # Upload na sidebar
+    with st.sidebar:
+        uploaded_file = st.file_uploader(
+            "Upload CSV",
+            type=['csv']
+        )
     
     # Processar upload
     if uploaded_file is not None:
         try:
             encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
-            df = None
+            df_original = None
             filename = uploaded_file.name
             
             for encoding in encodings:
                 try:
                     uploaded_file.seek(0)
-                    df = pd.read_csv(
+                    df_original = pd.read_csv(
                         uploaded_file, 
                         encoding=encoding, 
                         sep=';',
@@ -674,8 +894,13 @@ def main():
                 except:
                     continue
             
-            if df is not None:
-                processed_result = process_trading_data(df, filename)
+            if df_original is not None:
+                success_full, sheet_name = copy_full_csv_to_sheets(df_original, filename)
+                
+                if success_full:
+                    st.success(f"✅ CSV completo colado na aba: {sheet_name}")
+                
+                processed_result = process_trading_data(df_original, filename)
                 
                 if isinstance(processed_result, tuple):
                     processed_df, asset_info = processed_result
@@ -685,31 +910,43 @@ def main():
                 
                 if not processed_df.empty:
                     if append_data_to_sheets(processed_df):
-                        st.success(f"✅ Dados adicionados - {asset_info}")
+                        st.success(f"✅ Dados processados adicionados - {asset_info}")
                         time.sleep(1)
                         st.cache_data.clear()
+                        # Recarregar dados
                         sheets_data = load_data_from_sheets()
+                        if sheets_data is not None:
+                            st.session_state.filtered_data = sheets_data
         except Exception:
             pass
     
-    # Exibir dashboard
-    if sheets_data is not None and not sheets_data.empty:
+    # Exibir dashboard com dados filtrados
+    display_data = st.session_state.filtered_data
+    
+    if display_data is not None and not display_data.empty:
         # Estatísticas
-        create_statistics_container(sheets_data)
+        create_statistics_container(display_data)
         
         # Gráfico de área
-        area_chart = create_area_chart(sheets_data)
+        st.subheader("📈 Evolução Acumulada")
+        area_chart = create_area_chart(display_data)
         if area_chart is not None:
             st.altair_chart(area_chart, use_container_width=True)
+        else:
+            st.warning("Gráfico de área não pôde ser gerado")
         
         # Heatmap
-        heatmap_chart = create_trading_heatmap(sheets_data)
+        st.subheader("🔥 Heatmap de Atividade")
+        heatmap_chart = create_trading_heatmap(display_data)
         if heatmap_chart is not None:
             st.altair_chart(heatmap_chart, use_container_width=True)
+        else:
+            st.warning("Heatmap não pôde ser gerado")
         
         # Gráficos adicionais
-        histogram_chart = create_daily_histogram(sheets_data)
-        radial_chart = create_radial_chart(sheets_data)
+        st.subheader("📊 Análise Detalhada")
+        histogram_chart = create_daily_histogram(display_data)
+        radial_chart = create_radial_chart(display_data)
 
         if histogram_chart is not None and radial_chart is not None:
             col1, col2 = st.columns([3, 1])
@@ -719,6 +956,13 @@ def main():
             
             with col2:
                 st.altair_chart(radial_chart, use_container_width=True)
+        else:
+            if histogram_chart is not None:
+                st.altair_chart(histogram_chart, use_container_width=True)
+            if radial_chart is not None:
+                st.altair_chart(radial_chart, use_container_width=True)
+    else:
+        st.info("📋 Nenhum dado encontrado. Faça upload de um arquivo CSV para começar.")
 
 if __name__ == "__main__":
     main()
