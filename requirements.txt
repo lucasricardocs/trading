@@ -1,4 +1,8 @@
-streamlit 
-pandas 
-altair 
+streamlit
+pandas
+altair
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
 numpy
