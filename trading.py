@@ -9,17 +9,58 @@ def process_trading_data(df):
     # Limpar e processar as colunas
     df = df.copy()
     
-    # Converter Data para datetime
-    df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
+    # Limpar nomes das colunas (remover espaços extras)
+    df.columns = df.columns.str.strip()
     
-    # Converter Total para numérico (remover vírgulas e converter)
-    if 'Total' in df.columns:
-        df['Total'] = df['Total'].astype(str).str.replace(',', '.').astype(float)
+    # Procurar pela coluna de Data (pode ter nomes diferentes)
+    date_col = None
+    for col in df.columns:
+        if 'Data' in col or 'data' in col:
+            date_col = col
+            break
+    
+    if date_col is None:
+        raise ValueError("Coluna de data não encontrada")
+    
+    # Procurar pela coluna Total
+    total_col = None
+    for col in df.columns:
+        if 'Total' in col or 'total' in col:
+            total_col = col
+            break
+    
+    if total_col is None:
+        raise ValueError("Coluna de total não encontrada")
+    
+    # Filtrar apenas linhas que têm data válida (não vazias)
+    df = df[df[date_col].notna() & (df[date_col] != '')]
+    
+    # Converter Data para datetime - tentar diferentes formatos
+    date_formats = ['%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y %H:%M:%S']
+    
+    for fmt in date_formats:
+        try:
+            df['Data'] = pd.to_datetime(df[date_col], format=fmt, errors='coerce')
+            break
+        except:
+            continue
+    
+    # Se ainda não conseguiu converter, tentar inferir automaticamente
+    if df['Data'].isna().all():
+        df['Data'] = pd.to_datetime(df[date_col], errors='coerce', dayfirst=True)
+    
+    # Converter Total para numérico
+    if df[total_col].dtype == 'object':
+        # Remover espaços, substituir vírgulas por pontos, remover caracteres não numéricos exceto - e .
+        df['Total'] = df[total_col].astype(str).str.strip()
+        df['Total'] = df['Total'].str.replace(',', '.')
+        df['Total'] = df['Total'].str.replace(r'[^\d\-\.]', '', regex=True)
+        df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
     else:
-        df['Total'] = 0
+        df['Total'] = pd.to_numeric(df[total_col], errors='coerce')
     
-    # Remover linhas com datas inválidas
-    df = df.dropna(subset=['Data'])
+    # Remover linhas com datas ou totais inválidos
+    df = df.dropna(subset=['Data', 'Total'])
     
     # Agrupar por data para somar os resultados do dia
     daily_data = df.groupby('Data').agg({
@@ -198,17 +239,40 @@ def main():
     
     if uploaded_file is not None:
         try:
-            # Tentar diferentes encodings
+            # Tentar diferentes encodings e métodos de leitura
             encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
             df = None
             
             for encoding in encodings:
                 try:
                     uploaded_file.seek(0)  # Reset file pointer
-                    df = pd.read_csv(uploaded_file, encoding=encoding, sep=';')
-                    st.success(f"Arquivo carregado com encoding: {encoding}")
-                    break
-                except UnicodeDecodeError:
+                    
+                    # Ler o arquivo linha por linha para identificar a estrutura
+                    content = uploaded_file.read().decode(encoding)
+                    lines = content.split('\n')
+                    
+                    # Procurar pela linha de cabeçalho (que contém os nomes das colunas)
+                    header_line_idx = None
+                    for i, line in enumerate(lines):
+                        if 'Subconta' in line and 'Data' in line and 'Total' in line:
+                            header_line_idx = i
+                            break
+                    
+                    if header_line_idx is not None:
+                        # Ler o CSV pulando as linhas até o cabeçalho
+                        uploaded_file.seek(0)
+                        df = pd.read_csv(uploaded_file, encoding=encoding, sep=';', 
+                                       skiprows=header_line_idx, on_bad_lines='skip')
+                        st.success(f"Arquivo carregado com encoding: {encoding}")
+                        break
+                    else:
+                        # Tentar ler normalmente se não encontrar o padrão esperado
+                        uploaded_file.seek(0)
+                        df = pd.read_csv(uploaded_file, encoding=encoding, sep=';', on_bad_lines='skip')
+                        st.success(f"Arquivo carregado com encoding: {encoding}")
+                        break
+                        
+                except (UnicodeDecodeError, pd.errors.ParserError):
                     continue
             
             if df is None:
