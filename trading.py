@@ -3,39 +3,22 @@ import streamlit as st
 import gspread
 import pandas as pd
 import altair as alt
-import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from google.oauth2.service_account import Credentials
-from gspread.exceptions import SpreadsheetNotFound
-import warnings
-import time
-import re
 
-# Suprimir warnings
-warnings.filterwarnings('ignore', category=FutureWarning, message='.*observed=False.*')
-
-# --- Configurações Globais ---
+# --- Configurações ---
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM'
-WORKSHEET_NAME = 'dados'
 
 # Configuração da página
 st.set_page_config(
-    page_title="Trading Activity Dashboard",
+    page_title="Trading Dashboard",
     page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# --- Inicialização de Session State ---
-def initialize_session_state():
-    """Inicializa todos os valores do session state."""
-    if 'filtered_data' not in st.session_state:
-        st.session_state.filtered_data = None
-
-# --- Funções de Conexão com Google Sheets ---
+# --- Conexão Google Sheets ---
 @st.cache_resource
 def get_gspread_client():
-    """Cria e retorna cliente gspread autenticado."""
     try:
         credentials_info = dict(st.secrets["google_credentials"])
         credentials = Credentials.from_service_account_info(
@@ -50,390 +33,8 @@ def get_gspread_client():
         st.error(f"Erro na autenticação: {e}")
         return None
 
-@st.cache_data(ttl=60)
-def load_data_from_sheets():
-    """Carrega dados da aba 'dados' da planilha Google Sheets."""
-    try:
-        gc = get_gspread_client()
-        if gc is None:
-            return None
-        
-        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
-        data = worksheet.get_all_records()
-        
-        if not data:
-            st.info("ℹ️ Aba 'dados' está vazia")
-            return None
-        
-        df = pd.DataFrame(data)
-        
-        # Se a aba 'dados' tem a estrutura completa, processar como CSV
-        if 'Abertura' in df.columns or 'Fechamento' in df.columns:
-            # Procurar coluna de data
-            date_col = None
-            for col in df.columns:
-                if any(word in col for word in ['Abertura', 'Fechamento', 'Data']):
-                    date_col = col
-                    break
-            
-            # Procurar coluna total
-            total_col = None
-            for col in df.columns:
-                if any(word in col for word in ['Total', 'total']):
-                    total_col = col
-                    break
-            
-            if date_col is None or total_col is None:
-                st.error("❌ Colunas necessárias não encontradas")
-                return None
-            
-            # Filtrar dados válidos
-            df = df[df[date_col].notna() & (df[date_col] != '')]
-            df = df[df[total_col].notna() & (df[total_col] != '')]
-            
-            # Converter data
-            def extract_date(date_str):
-                try:
-                    if isinstance(date_str, str):
-                        date_part = date_str.split(' ')[0]
-                        return pd.to_datetime(date_part, format='%d/%m/%Y', errors='coerce')
-                    else:
-                        return pd.to_datetime(date_str, errors='coerce')
-                except:
-                    return pd.NaT
-            
-            df['Data'] = df[date_col].apply(extract_date)
-            
-            # Converter total
-            def convert_total(value):
-                try:
-                    if pd.isna(value) or value == '':
-                        return 0
-                    value_str = str(value).strip().replace(',', '.')
-                    value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
-                    return float(value_str) if value_str else 0
-                except:
-                    return 0
-            
-            df['Total'] = df[total_col].apply(convert_total)
-            
-            # Remover dados inválidos
-            df = df.dropna(subset=['Data'])
-            df = df[df['Total'] != 0]
-            
-            # Agrupar por data
-            daily_data = df.groupby('Data').agg({
-                'Total': 'sum'
-            }).reset_index()
-            
-            return daily_data
-            
-        else:
-            # Estrutura simples (Data, Total)
-            if 'Data' in df.columns and 'Total' in df.columns:
-                df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
-                df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
-                df = df.dropna(subset=['Data', 'Total'])
-                return df
-            else:
-                st.error("❌ Estrutura de dados não reconhecida")
-                return None
-        
-    except Exception as e:
-        st.error(f"❌ Erro ao carregar dados: {e}")
-        return None
-
-# --- FUNÇÃO PARA COLAR DADOS DO CSV ---
-def copy_csv_to_sheets(uploaded_file, filename=None):
-    """Cola dados do CSV garantindo correspondência exata de colunas com Google Sheets."""
-    try:
-        st.info("🔄 Iniciando processo de cópia com correspondência de colunas...")
-        
-        gc = get_gspread_client()
-        if gc is None:
-            st.error("❌ Falha na conexão com Google Sheets")
-            return False, "Erro de conexão"
-        
-        st.success("✅ Conectado ao Google Sheets")
-        
-        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-        st.success("✅ Planilha encontrada")
-        
-        # Nome da aba baseado no arquivo
-        if filename:
-            sheet_name = filename.replace('.csv', '').replace('.CSV', '')[:30]
-        else:
-            sheet_name = f"CSV_{datetime.now().strftime('%d%m%Y_%H%M')}"
-        
-        st.info(f"📋 Criando/acessando aba: {sheet_name}")
-        
-        # Verificar se a aba já existe, se não, criar
-        try:
-            worksheet = spreadsheet.worksheet(sheet_name)
-            st.info("📋 Aba existente encontrada")
-        except:
-            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=30)
-            st.success(f"✅ Nova aba criada: {sheet_name}")
-        
-        # LER O ARQUIVO CSV
-        uploaded_file.seek(0)
-        
-        # Tentar diferentes encodings
-        encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
-        csv_content = None
-        used_encoding = None
-        
-        for encoding in encodings:
-            try:
-                uploaded_file.seek(0)
-                csv_content = uploaded_file.read().decode(encoding)
-                used_encoding = encoding
-                break
-            except Exception as e:
-                continue
-        
-        if csv_content is None:
-            st.error("❌ Não foi possível ler o arquivo CSV")
-            return False, "Erro ao ler arquivo"
-        
-        st.success(f"✅ Arquivo lido com encoding: {used_encoding}")
-        
-        # Dividir em linhas
-        csv_lines = csv_content.split('\n')
-        st.info(f"📄 Total de linhas no arquivo: {len(csv_lines)}")
-        
-        # Verificar se tem pelo menos 6 linhas (linha 5 + dados)
-        if len(csv_lines) < 6:
-            st.error("❌ Arquivo não tem dados suficientes (mínimo 6 linhas)")
-            return False, "Arquivo muito pequeno"
-        
-        # LINHA 5 DO CSV = CABEÇALHO (índice 4)
-        header_line = csv_lines[4].strip()
-        if not header_line:
-            st.error("❌ Linha 5 (cabeçalho) está vazia")
-            return False, "Cabeçalho vazio"
-        
-        # Processar cabeçalho do CSV
-        csv_header = []
-        for cell in header_line.split(';'):
-            clean_cell = cell.strip().strip('"').strip()
-            csv_header.append(clean_cell)
-        
-        st.success(f"✅ Cabeçalho CSV (linha 5): {csv_header}")
-        
-        # Verificar cabeçalho existente no Google Sheets
-        try:
-            existing_data = worksheet.get_all_values()
-            if existing_data:
-                sheets_header = existing_data[0]
-                st.info(f"📊 Cabeçalho Google Sheets (linha 1): {sheets_header}")
-                
-                # Verificar se os cabeçalhos são iguais
-                if csv_header != sheets_header:
-                    st.warning("⚠️ Cabeçalhos diferentes! Atualizando Google Sheets...")
-                    # Atualizar cabeçalho do Google Sheets com o do CSV
-                    worksheet.update('A1', [csv_header])
-                    st.success("✅ Cabeçalho do Google Sheets atualizado")
-                else:
-                    st.success("✅ Cabeçalhos são idênticos")
-            else:
-                # Planilha vazia - inserir cabeçalho do CSV
-                st.info("📝 Planilha vazia - inserindo cabeçalho do CSV")
-                worksheet.update('A1', [csv_header])
-                st.success("✅ Cabeçalho inserido na linha 1")
-        except Exception as e:
-            st.error(f"Erro ao verificar cabeçalho: {e}")
-            # Inserir cabeçalho mesmo assim
-            worksheet.update('A1', [csv_header])
-        
-        # Processar dados (linhas 6 em diante do CSV)
-        data_lines = csv_lines[5:]  # Linhas 6 em diante (índice 5+)
-        linhas_preenchidas = []
-        
-        for i, line in enumerate(data_lines, 6):
-            line = line.strip()
-            if line:  # Se a linha não está vazia
-                cells = []
-                for cell in line.split(';'):
-                    clean_cell = cell.strip().strip('"').strip()
-                    cells.append(clean_cell)
-                
-                # Verificar se a linha tem pelo menos uma célula com conteúdo
-                if any(cell for cell in cells):
-                    # Ajustar para ter exatamente o mesmo número de colunas que o cabeçalho
-                    while len(cells) < len(csv_header):
-                        cells.append('')
-                    if len(cells) > len(csv_header):
-                        cells = cells[:len(csv_header)]
-                    
-                    linhas_preenchidas.append(cells)
-        
-        st.success(f"✅ Linhas preenchidas processadas: {len(linhas_preenchidas)}")
-        
-        if len(linhas_preenchidas) == 0:
-            st.warning("⚠️ Nenhuma linha preenchida encontrada abaixo da linha 5")
-            return False, "Sem dados para inserir"
-        
-        # Encontrar primeira linha vazia (abaixo do cabeçalho)
-        existing_data = worksheet.get_all_values()
-        primeira_linha_vazia = 2  # Começar da linha 2 (abaixo do cabeçalho)
-        
-        if len(existing_data) > 1:  # Se há mais que só o cabeçalho
-            for i in range(1, len(existing_data)):  # Começar da linha 2 (índice 1)
-                row = existing_data[i]
-                # Verificar se a linha está completamente vazia
-                if not any(cell.strip() for cell in row if cell):
-                    primeira_linha_vazia = i + 1  # +1 porque gspread usa indexação 1-based
-                    break
-                else:
-                    primeira_linha_vazia = i + 2  # Próxima linha após a última preenchida
-        
-        st.info(f"📍 Inserindo dados a partir da linha: {primeira_linha_vazia}")
-        
-        # Inserir as linhas preenchidas
-        if linhas_preenchidas:
-            # Calcular range para inserção
-            num_rows = len(linhas_preenchidas)
-            num_cols = len(csv_header)
-            
-            # Converter número para letra da coluna
-            def num_to_col_letter(num):
-                result = ""
-                while num > 0:
-                    num -= 1
-                    result = chr(65 + (num % 26)) + result
-                    num //= 26
-                return result
-            
-            end_col = num_to_col_letter(num_cols)
-            end_row = primeira_linha_vazia + num_rows - 1
-            range_name = f'A{primeira_linha_vazia}:{end_col}{end_row}'
-            
-            st.info(f"📊 Inserindo no range: {range_name}")
-            st.info(f"📋 Inserindo {num_rows} linhas com {num_cols} colunas cada")
-            
-            # Inserir dados na planilha
-            worksheet.update(range_name, linhas_preenchidas, value_input_option='RAW')
-            
-            st.success(f"✅ {num_rows} linhas inseridas com correspondência exata de colunas!")
-        
-        return True, f"{sheet_name} - {len(linhas_preenchidas)} linhas inseridas com colunas correspondentes"
-        
-    except Exception as e:
-        st.error(f"❌ Erro durante a cópia: {str(e)}")
-        return False, f"Erro: {str(e)}"
-
-# --- PROCESSAR DADOS PARA DASHBOARD ---
-def process_trading_data(df):
-    """Processa os dados de trading do CSV baseado na estrutura da tabela fornecida."""
-    # Limpar e processar as colunas
-    df = df.copy()
-    
-    # Limpar nomes das colunas (remover espaços extras)
-    df.columns = df.columns.str.strip()
-    
-    # Procurar pela coluna de Data (Abertura ou Fechamento)
-    date_col = None
-    for col in df.columns:
-        if any(word in col for word in ['Abertura', 'Fechamento', 'Data']):
-            date_col = col
-            break
-    
-    if date_col is None:
-        raise ValueError("Coluna de data não encontrada")
-    
-    # Procurar pela coluna Total
-    total_col = None
-    for col in df.columns:
-        if 'Total' in col or 'total' in col:
-            total_col = col
-            break
-    
-    if total_col is None:
-        raise ValueError("Coluna de total não encontrada")
-    
-    # Filtrar apenas linhas que têm data válida (não vazias)
-    df = df[df[date_col].notna() & (df[date_col] != '')]
-    
-    # Converter Data para datetime - extrair apenas a parte da data
-    def extract_date(date_str):
-        try:
-            # Se for string, pegar apenas os primeiros 10 caracteres (DD/MM/YYYY)
-            if isinstance(date_str, str):
-                date_part = date_str.split(' ')[0]  # Pegar só a parte da data
-                return pd.to_datetime(date_part, format='%d/%m/%Y', errors='coerce')
-            else:
-                return pd.to_datetime(date_str, errors='coerce')
-        except:
-            return pd.NaT
-    
-    df['Data'] = df[date_col].apply(extract_date)
-    
-    # Converter Total para numérico
-    def convert_total(value):
-        try:
-            if pd.isna(value) or value == '':
-                return 0
-            
-            # Converter para string e limpar
-            value_str = str(value).strip()
-            
-            # Remover caracteres não numéricos exceto - e .
-            value_str = value_str.replace(',', '.')
-            value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
-            
-            return float(value_str) if value_str else 0
-        except:
-            return 0
-    
-    df['Total'] = df[total_col].apply(convert_total)
-    
-    # Remover linhas com datas ou totais inválidos
-    df = df.dropna(subset=['Data'])
-    
-    # Agrupar por data para somar os resultados do dia
-    daily_data = df.groupby('Data').agg({
-        'Total': 'sum'
-    }).reset_index()
-    
-    return daily_data
-
-def process_data_for_dashboard(uploaded_file, filename=None):
-    """Processa dados do CSV para o dashboard usando pandas."""
-    try:
-        # Ler CSV com pandas
-        encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
-        df_original = None
-        
-        for encoding in encodings:
-            try:
-                uploaded_file.seek(0)
-                df_original = pd.read_csv(
-                    uploaded_file, 
-                    encoding=encoding, 
-                    sep=';',
-                    skiprows=4,
-                    on_bad_lines='skip'
-                )
-                break
-            except:
-                continue
-        
-        if df_original is None:
-            return pd.DataFrame(), "Erro ao ler CSV"
-        
-        # Processar dados usando a função existente
-        processed_df = process_trading_data(df_original)
-        
-        return processed_df, f"Processados {len(processed_df)} dias de trading"
-        
-    except Exception as e:
-        return pd.DataFrame(), f"Erro: {str(e)}"
-
-# --- ADICIONAR DADOS PROCESSADOS À ABA 'dados' ---
-def add_to_dados_sheet(df):
-    """Adiciona dados processados à aba 'dados'."""
+# --- Colar dados do CSV no Google Sheets ---
+def copy_csv_to_sheets(uploaded_file, filename):
     try:
         gc = get_gspread_client()
         if gc is None:
@@ -441,352 +42,142 @@ def add_to_dados_sheet(df):
         
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
         
+        # Nome da aba
+        sheet_name = filename.replace('.csv', '')[:30]
+        
+        # Criar ou acessar aba
         try:
-            worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
+            worksheet = spreadsheet.worksheet(sheet_name)
         except:
-            # Criar aba 'dados' se não existir
-            worksheet = spreadsheet.add_worksheet(title=WORKSHEET_NAME, rows=1000, cols=10)
-            worksheet.update('A1', [['Data', 'Total']])
+            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
         
-        # Verificar se já existem dados
-        existing_data = worksheet.get_all_records()
-        existing_dates = set()
+        # Ler arquivo CSV
+        uploaded_file.seek(0)
+        content = uploaded_file.read().decode('utf-8')
+        lines = content.split('\n')
         
-        if existing_data:
-            for row in existing_data:
-                try:
-                    if 'Data' in row:
-                        date_obj = pd.to_datetime(row['Data'], format='%d/%m/%Y')
-                        existing_dates.add(date_obj.date())
-                except:
-                    continue
+        # Linha 5 = cabeçalho (índice 4)
+        header = lines[4].strip().split(';')
         
-        # Filtrar dados novos
-        new_data = df.copy()
-        new_data['Data'] = pd.to_datetime(new_data['Data'])
+        # Dados a partir da linha 6
+        data_rows = []
+        for line in lines[5:]:
+            if line.strip():
+                cells = line.strip().split(';')
+                if any(cell.strip() for cell in cells):
+                    # Ajustar para mesmo número de colunas
+                    while len(cells) < len(header):
+                        cells.append('')
+                    data_rows.append(cells[:len(header)])
         
-        if existing_dates:
-            new_dates = set(new_data['Data'].dt.date)
-            dates_to_add = new_dates - existing_dates
-            
-            if dates_to_add:
-                new_data = new_data[new_data['Data'].dt.date.isin(dates_to_add)]
-            else:
-                st.info("ℹ️ Dados já existem na aba 'dados'")
-                return True
+        # Verificar dados existentes
+        existing_data = worksheet.get_all_values()
         
-        if new_data.empty:
-            return True
+        # Se vazio, inserir cabeçalho
+        if not existing_data:
+            worksheet.update('A1', [header])
+            start_row = 2
+        else:
+            # Encontrar primeira linha vazia
+            start_row = len(existing_data) + 1
         
-        # Preparar dados para inserção
-        rows_to_add = []
-        for _, row in new_data.iterrows():
-            rows_to_add.append([
-                row['Data'].strftime('%d/%m/%Y'),
-                float(row['Total'])
-            ])
+        # Inserir dados
+        if data_rows:
+            end_row = start_row + len(data_rows) - 1
+            range_name = f'A{start_row}:Z{end_row}'
+            worksheet.update(range_name, data_rows)
         
-        worksheet.append_rows(rows_to_add)
-        st.success(f"✅ {len(rows_to_add)} dias adicionados à aba 'dados'")
-        
+        st.success(f"✅ {len(data_rows)} linhas copiadas para {sheet_name}")
         return True
         
     except Exception as e:
-        st.error(f"❌ Erro ao adicionar à aba dados: {e}")
+        st.error(f"Erro: {e}")
         return False
 
-# --- Funções de Filtro ---
-def filter_data_by_date(df, year_filter, month_filter):
-    """Filtra dados por ano e mês."""
-    if df is None or df.empty:
-        return df
-    
-    filtered_df = df.copy()
-    
-    if year_filter != "Todos":
-        filtered_df = filtered_df[filtered_df['Data'].dt.year == year_filter]
-    
-    if month_filter != "Todos":
-        month_num = {
-            'Janeiro': 1, 'Fevereiro': 2, 'Março': 3, 'Abril': 4,
-            'Maio': 5, 'Junho': 6, 'Julho': 7, 'Agosto': 8,
-            'Setembro': 9, 'Outubro': 10, 'Novembro': 11, 'Dezembro': 12
-        }
-        if month_filter in month_num:
-            filtered_df = filtered_df[filtered_df['Data'].dt.month == month_num[month_filter]]
-    
-    return filtered_df
-
-# --- Funções de Visualização ---
-def create_statistics_container(df):
-    """Cria container com estatísticas detalhadas."""
-    if df is None or df.empty:
-        st.warning("⚠️ Sem dados para exibir estatísticas")
-        return
-    
+# --- Processar dados para gráficos ---
+def process_data_for_charts(uploaded_file):
     try:
-        valor_acumulado = df['Total'].sum()
-        total_ganho = df[df['Total'] > 0]['Total'].sum()
-        total_perda = df[df['Total'] < 0]['Total'].sum()
-        dias_positivos = len(df[df['Total'] > 0])
-        dias_negativos = len(df[df['Total'] < 0])
-        total_dias = len(df)
+        uploaded_file.seek(0)
+        df = pd.read_csv(uploaded_file, encoding='utf-8', sep=';', skiprows=4)
         
-        perc_dias_positivos = (dias_positivos / total_dias * 100) if total_dias > 0 else 0
-        perc_dias_negativos = (dias_negativos / total_dias * 100) if total_dias > 0 else 0
+        # Encontrar coluna de data
+        date_col = None
+        for col in df.columns:
+            if any(word in col for word in ['Abertura', 'Fechamento', 'Data']):
+                date_col = col
+                break
         
-        maior_ganho = df['Total'].max() if not df.empty else 0
-        maior_perda = df['Total'].min() if not df.empty else 0
+        # Encontrar coluna total
+        total_col = None
+        for col in df.columns:
+            if 'Total' in col:
+                total_col = col
+                break
         
-        media_diaria = df[df['Total'] != 0]['Total'].mean() if len(df[df['Total'] != 0]) > 0 else 0
-        
-        st.subheader("📊 Estatísticas de Trading")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("💰 Valor Acumulado", f"R$ {valor_acumulado:,.2f}")
-            st.metric("📈 Total Ganhos", f"R$ {total_ganho:,.2f}")
-        
-        with col2:
-            st.metric("📉 Total Perdas", f"R$ {total_perda:,.2f}")
-            st.metric("📊 Média Diária", f"R$ {media_diaria:,.2f}")
-        
-        with col3:
-            st.metric("✅ Dias Positivos", f"{dias_positivos} ({perc_dias_positivos:.1f}%)")
-            st.metric("🚀 Maior Ganho", f"R$ {maior_ganho:,.2f}")
-        
-        with col4:
-            st.metric("❌ Dias Negativos", f"{dias_negativos} ({perc_dias_negativos:.1f}%)")
-            st.metric("💥 Maior Perda", f"R$ {maior_perda:,.2f}")
-            
-    except Exception:
-        pass
-
-def create_area_chart(df):
-    """Cria gráfico de área com evolução acumulada."""
-    if df is None or df.empty:
-        return None
-    
-    try:
-        area_data = df.copy().sort_values('Data')
-        area_data['Acumulado'] = area_data['Total'].cumsum()
-        
-        final_value = area_data['Acumulado'].iloc[-1]
-        line_color = '#3498db' if final_value >= 0 else '#e74c3c'
-        gradient_color = '#3498db' if final_value >= 0 else '#e74c3c'
-        
-        chart = alt.Chart(area_data).mark_area(
-            line={'color': line_color, 'strokeWidth': 2},
-            color=alt.Gradient(
-                gradient='linear',
-                stops=[
-                    alt.GradientStop(color='rgba(255,255,255,0.1)', offset=0),
-                    alt.GradientStop(color=gradient_color, offset=1)
-                ],
-                x1=1, x2=1, y1=1, y2=0
-            )
-        ).encode(
-            x=alt.X('Data:T', title=None),
-            y=alt.Y('Acumulado:Q', title=None),
-            tooltip=[
-                alt.Tooltip('Data:T', format='%d/%m/%Y'),
-                alt.Tooltip('Total:Q', format=',.2f', title='Resultado do Dia (R$)'),
-                alt.Tooltip('Acumulado:Q', format=',.2f', title='Acumulado (R$)')
-            ]
-        ).properties(
-            height=500, 
-            title='Evolução Acumulada dos Resultados'
-        ).configure_title(
-            fontSize=16,
-            color='#333'
-        ).configure_axis(
-            labelColor='#333',
-            titleColor='#333'
-        )
-        
-        return chart
-    except Exception:
-        return None
-
-def create_daily_histogram(df):
-    """Cria histograma diário."""
-    if df is None or df.empty:
-        return None
-    
-    try:
-        hist_data = df.copy().sort_values('Data')
-        
-        chart = alt.Chart(hist_data).mark_bar(
-            cornerRadius=2, stroke='white', strokeWidth=1
-        ).encode(
-            x=alt.X('Data:T', title=None),
-            y=alt.Y('Total:Q', title=None),
-            color=alt.condition(
-                alt.datum.Total >= 0,
-                alt.value('#3498db'),
-                alt.value('#e74c3c')
-            ),
-            tooltip=[
-                alt.Tooltip('Data:T', format='%d/%m/%Y'),
-                alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
-            ]
-        ).properties(
-            height=500, 
-            title='Resultado Diário'
-        ).configure_title(
-            fontSize=16,
-            color='#333'
-        ).configure_axis(
-            labelColor='#333',
-            titleColor='#333'
-        )
-        
-        return chart
-    except Exception:
-        return None
-
-def create_radial_chart(df):
-    """Cria gráfico radial com dados mensais."""
-    if df is None or df.empty:
-        return None
-    
-    try:
-        radial_data = df.copy()
-        radial_data['Mes'] = radial_data['Data'].dt.strftime('%b')
-        radial_data['MesNum'] = radial_data['Data'].dt.month
-        
-        monthly_data = radial_data.groupby(['Mes', 'MesNum']).agg({
-            'Total': 'sum'
-        }).reset_index()
-        
-        monthly_data = monthly_data.sort_values('MesNum')
-        monthly_data['AbsTotal'] = monthly_data['Total'].abs()
-        monthly_data = monthly_data[monthly_data['AbsTotal'] > 0]
-        
-        if monthly_data.empty:
+        if not date_col or not total_col:
             return None
         
-        base = alt.Chart(monthly_data).encode(
-            alt.Theta("AbsTotal:Q").stack(True),
-            alt.Radius("AbsTotal:Q").scale(type="sqrt", zero=True, rangeMin=20),
-            color=alt.condition(
-                alt.datum.Total >= 0,
-                alt.value('#3498db'),
-                alt.value('#e74c3c')
-            )
-        )
-
-        c1 = base.mark_arc(innerRadius=20, stroke="#fff", strokeWidth=2)
-        c2 = base.mark_text(radiusOffset=15, fontSize=10, fontWeight='bold').encode(
-            text=alt.Text('Mes:N'), color=alt.value('#333')
-        )
-
-        chart = (c1 + c2).properties(
-            height=500, 
-            title='Total por Mês'
-        ).configure_title(
-            fontSize=16,
-            color='#333'
-        )
+        # Limpar dados
+        df = df[df[date_col].notna() & df[total_col].notna()]
         
-        return chart
-    except Exception:
-        return None
-
-def create_simple_heatmap(df):
-    """Cria um heatmap simplificado caso o principal falhe."""
-    try:
-        df_year = df.copy()
-        current_year = df_year['Data'].dt.year.max()
+        # Converter data
+        df['Data'] = df[date_col].apply(lambda x: pd.to_datetime(str(x).split(' ')[0], format='%d/%m/%Y', errors='coerce'))
         
-        # Criar grid simples
-        df_year['day_of_week'] = df_year['Data'].dt.dayofweek
-        df_year['week'] = df_year['Data'].dt.isocalendar().week
+        # Converter total
+        df['Total'] = df[total_col].apply(lambda x: float(str(x).replace(',', '.')) if pd.notna(x) else 0)
         
-        # Mapear dias da semana
-        day_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
-        df_year['day_name'] = df_year['day_of_week'].map(lambda x: day_names[x])
+        # Agrupar por data
+        daily_data = df.groupby('Data')['Total'].sum().reset_index()
         
-        chart = alt.Chart(df_year).mark_rect(
-            stroke='white',
-            strokeWidth=1
-        ).encode(
-            x=alt.X('week:O', title='Semana'),
-            y=alt.Y('day_name:N', sort=day_names, title='Dia'),
-            color=alt.Color('Total:Q',
-                scale=alt.Scale(scheme='greens'),
-                title='Resultado (R$)'),
-            tooltip=[
-                alt.Tooltip('Data:T', format='%d/%m/%Y'),
-                alt.Tooltip('Total:Q', format=',.2f')
-            ]
-        ).properties(
-            width=600,
-            height=200,
-            title=f'Heatmap de Trading - {current_year}'
-        )
+        return daily_data
         
-        return chart
     except Exception as e:
-        st.error(f"Erro no heatmap simplificado: {e}")
+        st.error(f"Erro no processamento: {e}")
         return None
 
-def create_trading_heatmap(df):
-    """Cria um gráfico de heatmap estilo GitHub para a atividade de trading."""
+# --- Criar heatmap ---
+def create_heatmap(df):
+    if df is None or df.empty:
+        return None
+    
     try:
-        if df.empty or 'Data' not in df.columns or 'Total' not in df.columns:
-            st.warning("Dados insuficientes para gerar o heatmap.")
-            return None
-
-        # Determinar o ano atual ou mais recente dos dados
         current_year = df['Data'].dt.year.max()
-        df_year = df[df['Data'].dt.year == current_year].copy()
-
-        if df_year.empty:
-            st.warning(f"Sem dados para o ano {current_year}.")
-            return None
-
-        # Criar range completo de datas para o ano
+        df_year = df[df['Data'].dt.year == current_year]
+        
+        # Criar grid completo do ano
         start_date = pd.Timestamp(f'{current_year}-01-01')
         end_date = pd.Timestamp(f'{current_year}-12-31')
         
-        # Ajustar para começar na segunda-feira
+        # Ajustar para começar na segunda
         start_weekday = start_date.weekday()
         if start_weekday > 0:
             start_date = start_date - pd.Timedelta(days=start_weekday)
         
-        # Ajustar para terminar no domingo
-        end_weekday = end_date.weekday()
-        if end_weekday < 6:
-            end_date = end_date + pd.Timedelta(days=6-end_weekday)
-        
         all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
         
-        # DataFrame com todas as datas
+        # DataFrame completo
         full_df = pd.DataFrame({'Data': all_dates})
-        full_df = full_df.merge(df_year[['Data', 'Total']], on='Data', how='left')
+        full_df = full_df.merge(df_year, on='Data', how='left')
         full_df['Total'] = full_df['Total'].fillna(0)
         
-        # Adicionar informações de semana e dia
+        # Adicionar semana e dia
         full_df['week'] = ((full_df['Data'] - start_date).dt.days // 7)
         full_df['day_of_week'] = full_df['Data'].dt.weekday
         
-        # Mapear nomes dos dias
         day_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
         full_df['day_name'] = full_df['day_of_week'].map(lambda x: day_names[x])
         
-        # Marcar dias do ano atual
+        # Marcar apenas dias do ano atual
         full_df['is_current_year'] = full_df['Data'].dt.year == current_year
         full_df['display_total'] = full_df['Total'].where(full_df['is_current_year'], None)
         
-        # Criar heatmap estilo GitHub
+        # Criar heatmap
         chart = alt.Chart(full_df).mark_rect(
             stroke='white', strokeWidth=1, cornerRadius=2
         ).encode(
             x=alt.X('week:O', title=None, axis=None),
             y=alt.Y('day_name:N', sort=day_names, title=None,
-                   axis=alt.Axis(labelAngle=0, labelFontSize=10, labelColor='#333',
+                   axis=alt.Axis(labelAngle=0, labelFontSize=10, 
                                ticks=False, domain=False, grid=False)),
             color=alt.condition(
                 alt.datum.display_total == None,
@@ -804,198 +195,117 @@ def create_trading_heatmap(df):
                 alt.Tooltip('Total:Q', format=',.2f', title='Resultado (R$)')
             ]
         ).properties(
-            height=180, 
+            height=180,
             title=f'Atividade de Trading - {current_year}'
-        ).configure_title(
-            fontSize=16,
-            color='#333'
         )
         
         return chart
+        
     except Exception as e:
-        st.error(f"Erro ao criar heatmap: {e}")
+        st.error(f"Erro no heatmap: {e}")
         return None
 
-# --- Função Principal ---
-def main():
-    initialize_session_state()
+# --- Criar gráfico de linha ---
+def create_line_chart(df):
+    if df is None or df.empty:
+        return None
     
-    st.title("📈 Trading Activity Dashboard")
-    
-    # SIDEBAR COM FILTROS
-    with st.sidebar:
-        st.title("🎛️ Controles")
+    try:
+        df_sorted = df.sort_values('Data')
+        df_sorted['Acumulado'] = df_sorted['Total'].cumsum()
         
-        st.markdown("---")
-        st.subheader("📅 Filtros de Data")
-        
-        # Carregar dados para filtros
-        sheets_data = load_data_from_sheets()
-        
-        if sheets_data is not None and not sheets_data.empty:
-            # Filtro de Ano
-            years_available = sorted(sheets_data['Data'].dt.year.unique(), reverse=True)
-            year_options = ["Todos"] + [int(year) for year in years_available]
-            
-            year_filter = st.selectbox(
-                "Ano",
-                options=year_options,
-                index=0
-            )
-            
-            # Filtro de Mês
-            month_options = ["Todos", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-                           "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-            
-            month_filter = st.selectbox(
-                "Mês",
-                options=month_options,
-                index=0
-            )
-            
-            # Aplicar filtros
-            filtered_data = filter_data_by_date(sheets_data, year_filter, month_filter)
-            st.session_state.filtered_data = filtered_data
-            
-            # Mostrar informações dos filtros
-            if filtered_data is not None and not filtered_data.empty:
-                st.markdown("---")
-                st.subheader("📊 Resumo Filtrado")
-                st.metric("Registros", len(filtered_data))
-                st.metric("Período", f"{filtered_data['Data'].min().strftime('%d/%m/%Y')} a {filtered_data['Data'].max().strftime('%d/%m/%Y')}")
-                st.metric("Total", f"R$ {filtered_data['Total'].sum():,.2f}")
-        else:
-            st.warning("Sem dados disponíveis")
-            st.session_state.filtered_data = None
-        
-        st.markdown("---")
-        st.subheader("📤 Upload")
-        
-        uploaded_file = st.file_uploader(
-            "Upload CSV",
-            type=['csv'],
-            help="Faça upload do arquivo CSV com os dados de trading."
+        chart = alt.Chart(df_sorted).mark_line(
+            point=True, strokeWidth=2
+        ).encode(
+            x=alt.X('Data:T', title='Data'),
+            y=alt.Y('Acumulado:Q', title='Resultado Acumulado (R$)'),
+            color=alt.value('#3498db'),
+            tooltip=[
+                alt.Tooltip('Data:T', format='%d/%m/%Y'),
+                alt.Tooltip('Total:Q', format=',.2f', title='Resultado do Dia'),
+                alt.Tooltip('Acumulado:Q', format=',.2f', title='Acumulado')
+            ]
+        ).properties(
+            height=400,
+            title='Evolução dos Resultados'
         )
-    
-    # PROCESSAMENTO DO UPLOAD
-    if uploaded_file is not None:
-        filename = uploaded_file.name
-        st.subheader("🔄 Processamento do Arquivo")
         
-        # PASSO 1: Colar dados originais
-        st.markdown("### 📋 PASSO 1: Copiando dados originais")
-        success_copy, result_copy = copy_csv_to_sheets(uploaded_file, filename)
+        return chart
         
-        if success_copy:
-            st.success(f"✅ {result_copy}")
-            
-            # PASSO 2: Processar para dashboard
-            st.markdown("### ⚙️ PASSO 2: Processando para dashboard")
-            processed_df, asset_info = process_data_for_dashboard(uploaded_file, filename)
-            
-            if not processed_df.empty:
-                st.success(f"✅ {asset_info}")
-                
-                # PASSO 3: Adicionar à aba dados
-                st.markdown("### 📊 PASSO 3: Adicionando à aba 'dados'")
-                if add_to_dados_sheet(processed_df):
-                    st.success("✅ Dados adicionados à aba 'dados'")
-                    
-                    # Atualizar cache
-                    st.cache_data.clear()
-                    time.sleep(1)
-                    
-                    # Recarregar dados
-                    sheets_data = load_data_from_sheets()
-                    if sheets_data is not None:
-                        st.session_state.filtered_data = sheets_data
-                        st.success("🔄 Dashboard atualizado!")
-                else:
-                    st.error("❌ Erro ao adicionar à aba 'dados'")
-            else:
-                st.error(f"❌ Erro no processamento: {asset_info}")
-        else:
-            st.error(f"❌ Erro na cópia: {result_copy}")
-    
-    # DASHBOARD
-    st.markdown("---")
-    st.subheader("📊 Dashboard")
-    
-    # Exibir dados filtrados
-    display_data = st.session_state.filtered_data
-    
-    if display_data is not None and not display_data.empty:
-        # Estatísticas
-        create_statistics_container(display_data)
-        
-        # Gráfico de área
-        st.subheader("📈 Evolução Acumulada")
-        area_chart = create_area_chart(display_data)
-        if area_chart is not None:
-            st.altair_chart(area_chart, use_container_width=True)
-        
-        # Heatmap estilo GitHub
-        st.subheader("🔥 Heatmap de Atividade")
-        heatmap_chart = create_trading_heatmap(display_data)
-        if heatmap_chart is not None:
-            st.altair_chart(heatmap_chart, use_container_width=True)
-        else:
-            # Fallback para heatmap simplificado
-            simple_heatmap = create_simple_heatmap(display_data)
-            if simple_heatmap is not None:
-                st.altair_chart(simple_heatmap, use_container_width=True)
-        
-        # Gráficos adicionais
-        st.subheader("📊 Análise Detalhada")
-        histogram_chart = create_daily_histogram(display_data)
-        radial_chart = create_radial_chart(display_data)
+    except Exception:
+        return None
 
-        if histogram_chart is not None and radial_chart is not None:
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                st.altair_chart(histogram_chart, use_container_width=True)
-            
-            with col2:
-                st.altair_chart(radial_chart, use_container_width=True)
-        else:
-            if histogram_chart is not None:
-                st.altair_chart(histogram_chart, use_container_width=True)
-            if radial_chart is not None:
-                st.altair_chart(radial_chart, use_container_width=True)
-                
-        # Mostrar dados processados
-        with st.expander("📊 Dados processados por dia", expanded=False):
-            display_df = display_data.copy()
-            display_df['Data'] = display_df['Data'].dt.strftime('%d/%m/%Y')
-            display_df['Total'] = display_df['Total'].apply(lambda x: f"R$ {x:,.2f}")
-            st.dataframe(display_df, use_container_width=True)
-            
-        # Mostrar legenda explicativa
-        st.info("""
-        **Como interpretar o heatmap:**
-        - Cada quadrado representa um dia
-        - Cores mais escuras = resultados maiores (positivos ou negativos)
-        - Cores mais claras = resultados menores
-        - Cinza claro = sem atividade de trading
-        - Passe o mouse sobre os quadrados para ver detalhes
-        """)
-            
-    else:
-        st.info("📋 Nenhum dado encontrado. Faça upload de um arquivo CSV para começar.")
+# --- Interface Principal ---
+def main():
+    st.title("📈 Trading Dashboard")
+    
+    # Upload
+    uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
+    
+    if uploaded_file:
+        filename = uploaded_file.name
         
-        # Mostrar exemplo do formato esperado baseado na tabela fornecida
-        st.subheader("Formato esperado do arquivo")
-        example_data = {
-            'Subconta': ['70568938', '70568938', '70568938'],
-            'Ativo': ['WDON25', 'WDON25', 'WDON25'],
-            'Abertura': ['16/06/2025 09:00', '16/06/2025 09:18', '16/06/2025 09:49'],
-            'Fechamento': ['16/06/2025 09:17', '16/06/2025 09:49', '16/06/2025 10:11'],
-            'Lado': ['V', 'C', 'V'],
-            'Total': ['80', '-135', '-405']
+        # PASSO 1: Copiar para Google Sheets
+        st.subheader("📋 Copiando dados para Google Sheets")
+        if copy_csv_to_sheets(uploaded_file, filename):
+            
+            # PASSO 2: Processar dados
+            st.subheader("📊 Processando dados para gráficos")
+            processed_data = process_data_for_charts(uploaded_file)
+            
+            if processed_data is not None and not processed_data.empty:
+                # Estatísticas
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    total = processed_data['Total'].sum()
+                    st.metric("Total", f"R$ {total:,.2f}")
+                
+                with col2:
+                    dias = len(processed_data)
+                    st.metric("Dias", dias)
+                
+                with col3:
+                    positivos = len(processed_data[processed_data['Total'] > 0])
+                    st.metric("Dias +", positivos)
+                
+                with col4:
+                    media = processed_data['Total'].mean()
+                    st.metric("Média", f"R$ {media:,.2f}")
+                
+                # Gráficos
+                st.subheader("🔥 Heatmap de Atividade")
+                heatmap = create_heatmap(processed_data)
+                if heatmap:
+                    st.altair_chart(heatmap, use_container_width=True)
+                
+                st.subheader("📈 Evolução dos Resultados")
+                line_chart = create_line_chart(processed_data)
+                if line_chart:
+                    st.altair_chart(line_chart, use_container_width=True)
+                
+                # Dados processados
+                with st.expander("📊 Dados por dia"):
+                    display_df = processed_data.copy()
+                    display_df['Data'] = display_df['Data'].dt.strftime('%d/%m/%Y')
+                    display_df['Total'] = display_df['Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    st.dataframe(display_df, use_container_width=True)
+            
+            else:
+                st.error("Não foi possível processar os dados")
+    
+    else:
+        st.info("👆 Faça upload do arquivo CSV")
+        
+        # Exemplo
+        st.subheader("Formato esperado")
+        example = {
+            'Subconta': ['70568938', '70568938'],
+            'Ativo': ['WDON25', 'WDON25'],
+            'Abertura': ['16/06/2025 09:00', '16/06/2025 09:18'],
+            'Total': ['80', '-135']
         }
-        st.dataframe(pd.DataFrame(example_data))
-        st.caption("O arquivo deve conter pelo menos as colunas de data (Abertura/Fechamento) e 'Total'. Estrutura baseada na tabela fornecida.")
+        st.dataframe(pd.DataFrame(example))
 
 if __name__ == "__main__":
     main()
