@@ -9,6 +9,23 @@ from google.oauth2.service_account import Credentials
 # --- Configurações ---
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM'
 
+# Função para atualizar automaticamente a planilha
+def auto_update_sheets_with_csv_data():
+    """Função para integração automática com Google Sheets"""
+    try:
+        gc = get_gspread_client()
+        if gc is None:
+            st.error("Erro na conexão com Google Sheets")
+            return False
+        
+        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        st.info(f"✅ Conectado à planilha: {spreadsheet.title}")
+        return True
+        
+    except Exception as e:
+        st.error(f"Erro na integração: {e}")
+        return False
+
 # Configuração da página
 st.set_page_config(
     page_title="Trading Dashboard",
@@ -56,7 +73,7 @@ def read_csv_with_encoding(uploaded_file):
             # Dividir em linhas
             lines = content.split('\n')
             
-            st.success(f"✅ Arquivo lido com encoding: {encoding}")
+
             return lines, encoding
             
         except UnicodeDecodeError:
@@ -107,7 +124,7 @@ def copy_csv_to_sheets(uploaded_file, filename):
             return False
         
         header = header_line.split(';')
-        st.success(f"✅ Cabeçalho encontrado: {len(header)} colunas")
+
         
         # Dados a partir da linha 6
         data_rows = []
@@ -137,7 +154,7 @@ def copy_csv_to_sheets(uploaded_file, filename):
             range_name = f'A{start_row}:Z{end_row}'
             worksheet.update(range_name, data_rows)
         
-        st.success(f"✅ {len(data_rows)} linhas copiadas para {sheet_name}")
+
         return True
         
     except Exception as e:
@@ -333,6 +350,132 @@ def create_trading_heatmap(df):
         st.error(f"Erro no heatmap: {e}")
         return None
 
+# --- Criar histograma de distribuição de resultados ---
+def create_histogram_chart(df):
+    if df is None or df.empty:
+        return None
+    
+    try:
+        chart = alt.Chart(df).mark_bar(
+            opacity=0.7,
+            binSpacing=2
+        ).encode(
+            x=alt.X('Total:Q', bin=alt.Bin(maxbins=20), title='Resultado (R$)'),
+            y=alt.Y('count()', title='Frequência'),
+            color=alt.condition(
+                alt.datum.Total > 0,
+                alt.value('#2ECC71'),
+                alt.value('#E74C3C')
+            ),
+            tooltip=[
+                alt.Tooltip('count()', title='Frequência'),
+                alt.Tooltip('Total:Q', bin=True, title='Faixa de Resultado')
+            ]
+        ).properties(
+            height=250,
+            title='Distribuição dos Resultados'
+        )
+        
+        return chart
+        
+    except Exception:
+        return None
+
+# --- Criar gráfico de performance por dia da semana ---
+def create_weekday_performance_chart(df):
+    if df is None or df.empty:
+        return None
+    
+    try:
+        # Adicionar dia da semana
+        df_weekday = df.copy()
+        df_weekday['Dia_Semana'] = df_weekday['Data'].dt.day_name()
+        
+        # Mapear para português
+        day_mapping = {
+            'Monday': 'Segunda',
+            'Tuesday': 'Terça',
+            'Wednesday': 'Quarta',
+            'Thursday': 'Quinta',
+            'Friday': 'Sexta',
+            'Saturday': 'Sábado',
+            'Sunday': 'Domingo'
+        }
+        df_weekday['Dia_Semana'] = df_weekday['Dia_Semana'].map(day_mapping)
+        
+        # Agrupar por dia da semana
+        weekday_stats = df_weekday.groupby('Dia_Semana')['Total'].agg(['mean', 'count']).reset_index()
+        weekday_stats.columns = ['Dia_Semana', 'Media', 'Trades']
+        
+        # Ordenar dias da semana
+        day_order = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+        weekday_stats['Dia_Semana'] = pd.Categorical(weekday_stats['Dia_Semana'], categories=day_order, ordered=True)
+        weekday_stats = weekday_stats.sort_values('Dia_Semana')
+        
+        chart = alt.Chart(weekday_stats).mark_bar().encode(
+            x=alt.X('Dia_Semana:O', title='Dia da Semana', sort=day_order),
+            y=alt.Y('Media:Q', title='Resultado Médio (R$)'),
+            color=alt.condition(
+                alt.datum.Media > 0,
+                alt.value('#2ECC71'),
+                alt.value('#E74C3C')
+            ),
+            tooltip=[
+                alt.Tooltip('Dia_Semana:O', title='Dia'),
+                alt.Tooltip('Media:Q', format=',.2f', title='Resultado Médio'),
+                alt.Tooltip('Trades:Q', title='Número de Trades')
+            ]
+        ).properties(
+            height=250,
+            title='Performance por Dia da Semana'
+        )
+        
+        return chart
+        
+    except Exception:
+        return None
+
+# --- Criar gráfico radial de taxa de acerto ---
+def create_accuracy_radial_chart(df):
+    if df is None or df.empty:
+        return None
+    
+    try:
+        # Calcular estatísticas
+        total_trades = len(df)
+        winning_trades = len(df[df['Total'] > 0])
+        accuracy_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
+        
+        # Dados para o gráfico radial
+        data = pd.DataFrame({
+            'category': ['Acertos', 'Erros'],
+            'value': [accuracy_rate, 100 - accuracy_rate],
+            'color': ['#2ECC71', '#E74C3C']
+        })
+        
+        # Criar gráfico de pizza (radial)
+        chart = alt.Chart(data).mark_arc(
+            innerRadius=50,
+            outerRadius=100,
+            stroke='white',
+            strokeWidth=2
+        ).encode(
+            theta=alt.Theta('value:Q'),
+            color=alt.Color('color:N', scale=None),
+            tooltip=[
+                alt.Tooltip('category:N', title='Tipo'),
+                alt.Tooltip('value:Q', format='.1f', title='Percentual (%)')
+            ]
+        ).properties(
+            height=250,
+            title=f'{accuracy_rate:.1f}% de Acerto'
+        )
+        
+        return chart
+        
+    except Exception:
+        return None
+
 # --- Criar gráfico de linha ---
 def create_line_chart(df):
     if df is None or df.empty:
@@ -354,7 +497,7 @@ def create_line_chart(df):
                 alt.Tooltip('Acumulado:Q', format=',.2f', title='Acumulado')
             ]
         ).properties(
-            height=400,
+            height=300,
             title='Evolução dos Resultados'
         )
         
@@ -401,16 +544,44 @@ def main():
                     media = processed_data['Total'].mean()
                     st.metric("Média", f"R$ {media:,.2f}")
                 
-                # Gráficos
+                
+                # Heatmap separado
                 st.subheader("🔥 Heatmap de Atividade")
                 heatmap = create_trading_heatmap(processed_data)
                 if heatmap:
                     st.altair_chart(heatmap, use_container_width=True)
                 
-                st.subheader("📈 Evolução dos Resultados")
-                line_chart = create_line_chart(processed_data)
-                if line_chart:
-                    st.altair_chart(line_chart, use_container_width=True)
+                # Gráficos em layout 2/3 e 1/3
+                col_left, col_right = st.columns([2, 1])
+                
+                with col_left:
+                    st.subheader("📈 Evolução dos Resultados")
+                    line_chart = create_line_chart(processed_data)
+                    if line_chart:
+                        st.altair_chart(line_chart, use_container_width=True)
+                
+                with col_right:
+                    st.subheader("🎯 Taxa de Acerto")
+                    radial_chart = create_accuracy_radial_chart(processed_data)
+                    if radial_chart:
+                        st.altair_chart(radial_chart, use_container_width=True)
+                
+                # Gráficos adicionais sugeridos
+                st.subheader("📊 Análises Complementares")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("📈 Distribuição de Resultados")
+                    histogram_chart = create_histogram_chart(processed_data)
+                    if histogram_chart:
+                        st.altair_chart(histogram_chart, use_container_width=True)
+                
+                with col2:
+                    st.subheader("📅 Performance por Dia da Semana")
+                    weekday_chart = create_weekday_performance_chart(processed_data)
+                    if weekday_chart:
+                        st.altair_chart(weekday_chart, use_container_width=True)
                 
                 # Legenda explicativa
                 st.info("""
