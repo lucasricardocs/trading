@@ -1,9 +1,21 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
+import gspread
 import pandas as pd
 import altair as alt
-from datetime import datetime
 import numpy as np
-from streamlit_gsheets import GSheetsConnection
+from datetime import datetime, timedelta
+from google.oauth2.service_account import Credentials
+from gspread.exceptions import SpreadsheetNotFound
+import warnings
+import time
+
+# Suprimir warnings específicos do pandas
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*observed=False.*')
+
+# --- Configurações Globais e Constantes ---
+SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM'
+WORKSHEET_NAME = 'dados'
 
 # Configuração da página
 st.set_page_config(
@@ -12,22 +24,53 @@ st.set_page_config(
     layout="wide"
 )
 
-# Função para carregar dados da aba "dados" do Google Sheets
+# --- Funções de Conexão com Google Sheets ---
+@st.cache_resource
+def get_gspread_client():
+    """Cria e retorna cliente gspread autenticado."""
+    try:
+        # Carrega as credenciais dos secrets do Streamlit
+        credentials_info = dict(st.secrets["google_credentials"])
+        
+        # Cria as credenciais
+        credentials = Credentials.from_service_account_info(
+            credentials_info,
+            scopes=[
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+            ]
+        )
+        
+        # Retorna o cliente gspread
+        return gspread.authorize(credentials)
+    
+    except Exception as e:
+        st.error(f"Erro ao autenticar com Google Sheets: {e}")
+        return None
+
 @st.cache_data(ttl=60)
 def load_data_from_sheets():
     """Carrega dados da aba 'dados' da planilha Google Sheets."""
     try:
-        # Criar conexão com Google Sheets
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        
-        # Ler dados da aba "dados"
-        df = conn.read(worksheet="dados", usecols=[0, 1], ttl=60)
-        
-        if df.empty:
+        # Obter cliente gspread
+        gc = get_gspread_client()
+        if gc is None:
             return None
         
+        # Abrir a planilha
+        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
+        
+        # Obter todos os dados
+        data = worksheet.get_all_records()
+        
+        if not data:
+            return None
+        
+        # Converter para DataFrame
+        df = pd.DataFrame(data)
+        
         # Converter tipos de dados
-        df.columns = ['Data', 'Total']
         df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
         df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
         
@@ -36,110 +79,88 @@ def load_data_from_sheets():
         
         return df
         
+    except SpreadsheetNotFound:
+        st.error(f"Planilha com ID {SPREADSHEET_ID} não encontrada")
+        return None
     except Exception as e:
         st.error(f'Erro ao carregar dados do Google Sheets: {str(e)}')
         return None
 
-# Função para adicionar dados à aba "dados" (alimentação diária)
-def append_data_to_sheets_robust(df):
-    """Versão robusta que adiciona dados diretamente na primeira linha vazia."""
+def append_data_to_sheets(df):
+    """Adiciona novos dados à aba 'dados' sem substituir os existentes."""
     try:
-        from google.oauth2.service_account import Credentials
-        from googleapiclient.discovery import build
+        # Obter cliente gspread
+        gc = get_gspread_client()
+        if gc is None:
+            return False
         
-        # Carrega as credenciais
-        credentials = Credentials.from_service_account_info(
-            st.secrets["connections"]["gsheets"],
-            scopes=['https://www.googleapis.com/auth/spreadsheets']
-        )
+        # Abrir a planilha
+        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
         
-        # Constrói o serviço
-        service = build('sheets', 'v4', credentials=credentials)
+        # Obter dados existentes para verificar duplicatas
+        existing_data = worksheet.get_all_records()
+        existing_dates = set()
         
-        # ID da planilha
-        spreadsheet_id = "16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM"
+        if existing_data:
+            for row in existing_data:
+                try:
+                    date_obj = pd.to_datetime(row['Data'], format='%d/%m/%Y')
+                    existing_dates.add(date_obj.date())
+                except:
+                    continue
         
-        # Preparar dados para envio
-        df_to_append = df.copy()
-        df_to_append['Data'] = df_to_append['Data'].dt.strftime('%d/%m/%Y')
+        # Preparar novos dados
+        new_data = df.copy()
+        new_data['Data'] = pd.to_datetime(new_data['Data'])
         
-        # Converter para lista de listas
-        values_to_append = []
-        for _, row in df_to_append.iterrows():
-            values_to_append.append([row['Data'], float(row['Total'])])
-        
-        # Verificar dados existentes para evitar duplicatas
-        try:
-            result = service.spreadsheets().values().get(
-                spreadsheetId=spreadsheet_id,
-                range='dados!A:B'
-            ).execute()
+        # Filtrar apenas dados que ainda não existem
+        if existing_dates:
+            new_dates = set(new_data['Data'].dt.date)
+            dates_to_add = new_dates - existing_dates
             
-            existing_values = result.get('values', [])
-            if len(existing_values) > 1:  # Se há mais que só o cabeçalho
-                existing_dates = set()
-                for row in existing_values[1:]:  # Pular cabeçalho
-                    if len(row) >= 1:
-                        try:
-                            date_obj = pd.to_datetime(row[0], format='%d/%m/%Y')
-                            existing_dates.add(date_obj.date())
-                        except:
-                            continue
-                
-                # Filtrar apenas datas que não existem
-                filtered_values = []
-                for value_row in values_to_append:
-                    try:
-                        date_obj = pd.to_datetime(value_row[0], format='%d/%m/%Y')
-                        if date_obj.date() not in existing_dates:
-                            filtered_values.append(value_row)
-                    except:
-                        continue
-                
-                values_to_append = filtered_values
-                
-                if not values_to_append:
-                    st.warning("⚠️ Todos os dados já existem na planilha")
-                    return True
-                    
-        except Exception as e:
-            st.warning(f"⚠️ Não foi possível verificar dados existentes: {e}")
+            if dates_to_add:
+                new_data = new_data[new_data['Data'].dt.date.isin(dates_to_add)]
+                st.info(f"📅 Adicionando {len(new_data)} novos registros")
+            else:
+                st.warning("⚠️ Todos os dados já existem na planilha")
+                return True
+        else:
+            st.info(f"📅 Planilha vazia. Adicionando {len(new_data)} registros iniciais")
         
-        if not values_to_append:
+        if new_data.empty:
             st.warning("⚠️ Nenhum dado novo para adicionar")
             return True
         
-        # Adicionar dados na primeira linha vazia
-        body = {
-            'values': values_to_append
-        }
+        # Converter dados para formato de lista
+        rows_to_add = []
+        for _, row in new_data.iterrows():
+            rows_to_add.append([
+                row['Data'].strftime('%d/%m/%Y'),
+                float(row['Total'])
+            ])
         
-        result = service.spreadsheets().values().append(
-            spreadsheetId=spreadsheet_id,
-            range='dados!A:B',
-            valueInputOption='RAW',
-            insertDataOption='INSERT_ROWS',
-            body=body
-        ).execute()
+        # Adicionar dados à planilha
+        worksheet.append_rows(rows_to_add)
         
-        st.success(f"✅ {len(values_to_append)} novos registros adicionados à aba 'dados'")
+        st.success(f"✅ {len(rows_to_add)} novos registros adicionados à aba '{WORKSHEET_NAME}'")
         return True
         
     except Exception as e:
         st.error(f'❌ Erro ao adicionar dados ao Google Sheets: {str(e)}')
         return False
 
+# --- Funções de Processamento de Dados ---
 def process_trading_data(df):
     """Processa os dados de trading do CSV - cabeçalho na linha 5, dados a partir da linha 6."""
     try:
         df = df.copy()
         
-        # Verificar se o DataFrame não está vazio
         if df.empty:
             st.error("❌ Arquivo CSV vazio")
             return pd.DataFrame()
         
-        # Limpar nomes das colunas (remover espaços extras)
+        # Limpar nomes das colunas
         df.columns = df.columns.str.strip()
         
         # Debug: mostrar as colunas encontradas
@@ -169,7 +190,7 @@ def process_trading_data(df):
         
         st.success(f"✅ Usando coluna de data: '{date_col}' e coluna de total: '{total_col}'")
         
-        # Filtrar apenas linhas que têm data válida (não vazias e não NaN)
+        # Filtrar linhas válidas
         df = df[df[date_col].notna() & (df[date_col] != '') & (df[date_col] != 'nan')]
         
         if df.empty:
@@ -183,9 +204,7 @@ def process_trading_data(df):
                     return pd.NaT
                 
                 if isinstance(date_str, str):
-                    # Pegar apenas a parte da data (antes do espaço se houver)
                     date_part = date_str.split(' ')[0]
-                    # Tentar diferentes formatos de data
                     for fmt in ['%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%m/%d/%Y']:
                         try:
                             return pd.to_datetime(date_part, format=fmt)
@@ -205,21 +224,12 @@ def process_trading_data(df):
                 if pd.isna(value) or value == '' or str(value).lower() == 'nan':
                     return 0
                 
-                # Converter para string e limpar
                 value_str = str(value).strip()
-                
-                # Remover símbolos de moeda e espaços
                 value_str = value_str.replace('R$', '').replace('$', '').strip()
-                
-                # Substituir vírgula por ponto (formato brasileiro)
                 value_str = value_str.replace(',', '.')
-                
-                # Remover caracteres não numéricos exceto - e .
                 value_str = ''.join(c for c in value_str if c.isdigit() or c in '.-')
                 
-                # Converter para float
                 return float(value_str) if value_str else 0
-                
             except:
                 return 0
         
@@ -232,13 +242,13 @@ def process_trading_data(df):
             st.error("❌ Nenhuma linha com data válida após conversão")
             return pd.DataFrame()
         
-        # Mostrar preview dos dados processados
+        # Preview dos dados processados
         st.write("📊 Preview dos dados processados:")
         preview_df = df[['Data', 'Total']].head()
         preview_df['Data'] = preview_df['Data'].dt.strftime('%d/%m/%Y')
         st.dataframe(preview_df)
         
-        # Agrupar por data para somar os resultados do dia
+        # Agrupar por data
         daily_data = df.groupby('Data').agg({
             'Total': 'sum'
         }).reset_index()
@@ -251,6 +261,7 @@ def process_trading_data(df):
         st.error(f"❌ Erro ao processar dados: {str(e)}")
         return pd.DataFrame()
 
+# --- Funções de Visualização ---
 def create_statistics_container(df):
     """Cria container com estatísticas detalhadas."""
     if df.empty:
@@ -277,7 +288,7 @@ def create_statistics_container(df):
         # Média diária
         media_diaria = df[df['Total'] != 0]['Total'].mean() if len(df[df['Total'] != 0]) > 0 else 0
         
-        # Container com estatísticas estilizado
+        # Container estilizado
         st.markdown("""
         <div style="background: rgba(44, 62, 80, 0.3); 
                     backdrop-filter: blur(20px); padding: 2rem; border-radius: 15px; margin: 1rem 0; 
@@ -480,14 +491,15 @@ def create_trading_heatmap(df):
         st.error(f"❌ Erro ao criar heatmap: {str(e)}")
         return None
 
+# --- Função Principal ---
 def main():
     st.title("📈 Trading Activity Dashboard")
     st.markdown("**Sistema integrado:** Upload CSV → Google Sheets (aba dados) → Visualizações")
     
-    # CSS para background com partículas animadas (baseado no HTML fornecido)
+    # CSS para background com partículas animadas
     st.markdown("""
     <style>
-    /* Background principal com gradiente radial exato do HTML fornecido */
+    /* Background principal com gradiente radial */
     .stApp {
         background: radial-gradient(circle at 30% 30%, #2c3e50, #000);
         background-attachment: fixed;
@@ -498,7 +510,7 @@ def main():
         font-family: Arial, sans-serif;
     }
     
-    /* Container de partículas exato do HTML fornecido */
+    /* Container de partículas */
     .particles {
         position: absolute;
         width: 100%;
@@ -510,7 +522,7 @@ def main():
         z-index: -1;
     }
     
-    /* Partículas individuais exatas do HTML fornecido */
+    /* Partículas individuais */
     .particle {
         position: absolute;
         border-radius: 50%;
@@ -518,7 +530,7 @@ def main():
         animation: float 20s infinite linear;
     }
     
-    /* Animação de flutuação exata do HTML fornecido */
+    /* Animação de flutuação */
     @keyframes float {
         0% {
             transform: translateY(100vh) scale(0.5);
@@ -533,24 +545,18 @@ def main():
         }
     }
     
-    /* Ajustes para elementos do Streamlit */
-    .stApp > header {
-        background-color: transparent;
-    }
-    
-    /* Títulos e textos com melhor contraste */
+    /* Títulos e textos */
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
     }
     
-    /* Texto geral */
     .stMarkdown, .stText, p, span {
         color: #e0e0e0 !important;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
     }
     
-    /* Botões com tema azul */
+    /* Botões */
     .stButton > button {
         background: linear-gradient(45deg, #3498db, #74b9ff);
         color: white;
@@ -565,23 +571,10 @@ def main():
         transform: translateY(-2px);
     }
     
-    /* Upload area com tema escuro */
+    /* Upload area */
     .stFileUploader > div {
         background-color: rgba(44, 62, 80, 0.3);
         border: 2px dashed rgba(255, 255, 255, 0.5);
-        backdrop-filter: blur(10px);
-    }
-    
-    /* Expander com tema escuro */
-    .streamlit-expanderHeader {
-        background-color: rgba(44, 62, 80, 0.3);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-    }
-    
-    /* Dataframe com tema escuro */
-    .stDataFrame {
-        background-color: rgba(44, 62, 80, 0.2);
         backdrop-filter: blur(10px);
     }
     
@@ -591,18 +584,9 @@ def main():
         backdrop-filter: blur(10px);
         border-left: 4px solid #3498db;
     }
-    
-    /* Métricas com fundo transparente */
-    .metric-container {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 10px;
-        padding: 1rem;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
     </style>
     
-    <!-- HTML para partículas animadas exato do HTML fornecido -->
+    <!-- Partículas animadas -->
     <div class="particles">
         <div class="particle" style="width: 10px; height: 10px; left: 20%; animation-delay: 0s;"></div>
         <div class="particle" style="width: 8px; height: 8px; left: 40%; animation-delay: 5s;"></div>
@@ -625,47 +609,13 @@ def main():
         <div class="particle" style="width: 7px; height: 7px; left: 5%; animation-delay: 17s;"></div>
         <div class="particle" style="width: 13px; height: 13px; left: 82%; animation-delay: 1s;"></div>
     </div>
-    
-    <script>
-    // JavaScript para criar mais partículas dinamicamente
-    function createMoreParticles() {
-        const container = document.querySelector('.particles');
-        if (!container) return;
-        
-        // Criar 30 partículas adicionais
-        for (let i = 0; i < 30; i++) {
-            const particle = document.createElement('div');
-            particle.className = 'particle';
-            
-            // Tamanho aleatório entre 4px e 16px
-            const size = Math.random() * 12 + 4;
-            particle.style.width = size + 'px';
-            particle.style.height = size + 'px';
-            
-            // Posição horizontal aleatória
-            particle.style.left = Math.random() * 100 + '%';
-            
-            // Delay aleatório para animação
-            particle.style.animationDelay = Math.random() * 20 + 's';
-            
-            // Duração ligeiramente variada
-            const duration = 18 + Math.random() * 6;
-            particle.style.animationDuration = duration + 's';
-            
-            container.appendChild(particle);
-        }
-    }
-    
-    // Criar partículas quando a página carregar
-    document.addEventListener('DOMContentLoaded', createMoreParticles);
-    </script>
     """, unsafe_allow_html=True)
     
-    # Carregar dados da aba "dados" do Google Sheets automaticamente
+    # Carregar dados automaticamente
     with st.spinner("Carregando dados da aba 'dados' do Google Sheets..."):
         sheets_data = load_data_from_sheets()
     
-    # Seção de upload para alimentar a aba "dados"
+    # Seção de upload
     st.subheader("📤 Alimentar Base de Dados")
     st.info("💡 O arquivo CSV será processado e enviado para a aba 'dados' da planilha Google Sheets")
     
@@ -675,7 +625,7 @@ def main():
         help="Este arquivo será processado e enviado para a aba 'dados' da planilha."
     )
     
-    # Processar upload se houver
+    # Processar upload
     if uploaded_file is not None:
         try:
             encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
@@ -684,13 +634,12 @@ def main():
             for encoding in encodings:
                 try:
                     uploaded_file.seek(0)
-                    # Ler CSV pulando as primeiras 4 linhas, usando a linha 5 como cabeçalho
                     df = pd.read_csv(
                         uploaded_file, 
                         encoding=encoding, 
-                        sep=';',  # Separador ponto e vírgula
-                        skiprows=4,  # Pular as primeiras 4 linhas
-                        on_bad_lines='skip'  # Ignorar linhas problemáticas
+                        sep=';',
+                        skiprows=4,
+                        on_bad_lines='skip'
                     )
                     st.success(f"✅ Arquivo carregado com encoding: {encoding}")
                     break
@@ -699,41 +648,38 @@ def main():
                     continue
             
             if df is None:
-                st.error("❌ Não foi possível ler o arquivo com nenhum encoding testado.")
+                st.error("❌ Não foi possível ler o arquivo")
                 return
             
-            # Mostrar informações sobre o arquivo carregado
             st.write(f"📁 Arquivo carregado: {len(df)} linhas, {len(df.columns)} colunas")
             
-            # Mostrar preview do arquivo bruto
             with st.expander("👀 Preview do arquivo CSV bruto", expanded=False):
                 st.dataframe(df.head(10))
             
             processed_df = process_trading_data(df)
             
             if not processed_df.empty:
-                with st.spinner("Adicionando novos dados à aba 'dados' do Google Sheets..."):
-                    success = append_data_to_sheets_robust(processed_df)
-                    
-                    if success:
+                with st.spinner("Adicionando dados à aba 'dados' do Google Sheets..."):
+                    if append_data_to_sheets(processed_df):
                         st.success("✅ Dados adicionados com sucesso! Recarregando visualizações...")
-                        st.cache_data.clear()
+                        time.sleep(2)  # Aguardar sincronização
+                        st.cache_data.clear()  # Limpar cache
                         sheets_data = load_data_from_sheets()
                     else:
-                        st.error("❌ Erro ao adicionar dados ao Google Sheets.")
+                        st.error("❌ Erro ao adicionar dados ao Google Sheets")
             else:
-                st.error("❌ Nenhum dado válido foi processado do arquivo CSV.")
+                st.error("❌ Nenhum dado válido processado")
                         
         except Exception as e:
             st.error(f"❌ Erro ao processar arquivo: {str(e)}")
     
-    # Exibir visualizações baseadas nos dados da aba "dados"
+    # Exibir visualizações
     if sheets_data is not None and not sheets_data.empty:
         st.markdown("---")
         st.subheader("📊 Dashboard - Dados da Aba 'dados'")
-        st.info(f"📋 Exibindo dados da planilha Google Sheets (aba 'dados') - {len(sheets_data)} registros encontrados")
+        st.info(f"📋 Exibindo dados da planilha Google Sheets (aba 'dados') - {len(sheets_data)} registros")
         
-        # Container de estatísticas
+        # Estatísticas
         create_statistics_container(sheets_data)
         
         # Gráfico de área
@@ -762,7 +708,7 @@ def main():
             with col2:
                 st.altair_chart(radial_chart, use_container_width=True)
         
-        # Dados da aba "dados"
+        # Dados da planilha
         with st.expander("📋 Dados da Aba 'dados' - Google Sheets", expanded=False):
             display_df = sheets_data.copy()
             display_df['Data'] = display_df['Data'].dt.strftime('%d/%m/%Y')
@@ -773,7 +719,7 @@ def main():
     else:
         st.info("📋 Nenhum dado encontrado na aba 'dados' do Google Sheets. Faça upload de um arquivo CSV para começar.")
         
-        # Mostrar exemplo do formato esperado
+        # Exemplo do formato esperado
         st.subheader("📋 Formato Esperado do CSV")
         example_data = {
             'Data': ['16/06/2025', '17/06/2025', '18/06/2025'],
