@@ -198,8 +198,22 @@ def main():
     
     if uploaded_file is not None:
         try:
-            # Ler o CSV
-            df = pd.read_csv(uploaded_file, encoding='utf-8', sep=';')
+            # Tentar diferentes encodings
+            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
+            df = None
+            
+            for encoding in encodings:
+                try:
+                    uploaded_file.seek(0)  # Reset file pointer
+                    df = pd.read_csv(uploaded_file, encoding=encoding, sep=';')
+                    st.success(f"Arquivo carregado com encoding: {encoding}")
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if df is None:
+                st.error("Não foi possível ler o arquivo com nenhum encoding testado.")
+                return
             
             # Mostrar preview dos dados
             with st.expander("👀 Preview dos dados", expanded=False):
