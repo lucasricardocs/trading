@@ -77,8 +77,9 @@ def load_data_from_sheets():
     except Exception:
         return None
 
-def copy_full_csv_to_sheets(uploaded_file, filename=None):
-    """Cola dados do CSV EXATAMENTE como estão no arquivo original, sem processamento."""
+# --- PASSO 1: COLAR DADOS BRUTOS NO GOOGLE SHEETS ---
+def copy_csv_to_sheets_first(uploaded_file, filename=None):
+    """PASSO 1: Cola dados do CSV EXATAMENTE como estão no arquivo original."""
     try:
         gc = get_gspread_client()
         if gc is None:
@@ -96,11 +97,10 @@ def copy_full_csv_to_sheets(uploaded_file, filename=None):
         try:
             worksheet = spreadsheet.worksheet(sheet_name)
         except:
-            # Se não existe, criar nova aba
             worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
         
-        # LER O ARQUIVO CSV ORIGINAL DIRETAMENTE (sem pandas)
-        uploaded_file.seek(0)  # Voltar ao início do arquivo
+        # LER O ARQUIVO CSV ORIGINAL DIRETAMENTE
+        uploaded_file.seek(0)
         
         # Tentar diferentes encodings
         encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
@@ -153,11 +153,6 @@ def copy_full_csv_to_sheets(uploaded_file, filename=None):
             worksheet.update('A1', [header_cells])
             first_empty_row = 2
         else:
-            # Verificar se o cabeçalho já existe
-            if existing_data[0] != header_cells:
-                # Se o cabeçalho é diferente, substituir
-                worksheet.update('A1', [header_cells])
-            
             # Encontrar primeira linha vazia
             first_empty_row = 2  # Começar da linha 2
             for i in range(1, len(existing_data)):
@@ -194,93 +189,62 @@ def copy_full_csv_to_sheets(uploaded_file, filename=None):
     except Exception as e:
         return False, str(e)
 
-def append_data_to_sheets(df):
-    """Adiciona novos dados à aba 'dados'."""
+# --- PASSO 2: PROCESSAR DADOS E APLICAR CUSTOS ---
+def process_data_and_apply_costs(uploaded_file, filename=None):
+    """PASSO 2: Processa dados do CSV e aplica custos."""
     try:
-        gc = get_gspread_client()
-        if gc is None:
-            return False
+        # Ler CSV com pandas para processamento
+        encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
+        df_original = None
         
-        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
-        
-        existing_data = worksheet.get_all_records()
-        existing_dates = set()
-        
-        if existing_data:
-            for row in existing_data:
-                try:
-                    date_obj = pd.to_datetime(row['Data'], format='%d/%m/%Y')
-                    existing_dates.add(date_obj.date())
-                except:
-                    continue
-        
-        new_data = df.copy()
-        new_data['Data'] = pd.to_datetime(new_data['Data'])
-        
-        if existing_dates:
-            new_dates = set(new_data['Data'].dt.date)
-            dates_to_add = new_dates - existing_dates
-            
-            if dates_to_add:
-                new_data = new_data[new_data['Data'].dt.date.isin(dates_to_add)]
-            else:
-                return True
-        
-        if new_data.empty:
-            return True
-        
-        rows_to_add = []
-        for _, row in new_data.iterrows():
-            rows_to_add.append([
-                row['Data'].strftime('%d/%m/%Y'),
-                float(row['Total'])
-            ])
-        
-        worksheet.append_rows(rows_to_add)
-        return True
-    except Exception:
-        return False
-
-# --- Funções de Processamento ---
-def detect_asset_cost(df):
-    """Detecta o custo baseado nos dois primeiros caracteres da coluna ativo."""
-    custo_por_contrato = st.session_state.custo_wdo
-    asset_detected = "WDO (padrão)"
-    
-    for col in df.columns:
-        if any(word in col.lower() for word in ['ativo', 'asset', 'symbol']):
-            if not df[col].empty:
-                first_asset = str(df[col].dropna().iloc[0]).upper().strip()
-                
-                if len(first_asset) >= 2:
-                    first_two_chars = first_asset[:2]
-                    
-                    if first_two_chars == 'WD':
-                        custo_por_contrato = st.session_state.custo_wdo
-                        asset_detected = f"WD* ({first_asset})"
-                    elif first_two_chars == 'WI':
-                        custo_por_contrato = st.session_state.custo_win
-                        asset_detected = f"WI* ({first_asset})"
-                    else:
-                        custo_por_contrato = st.session_state.custo_wdo
-                        asset_detected = f"Outros ({first_asset})"
+        for encoding in encodings:
+            try:
+                uploaded_file.seek(0)
+                df_original = pd.read_csv(
+                    uploaded_file, 
+                    encoding=encoding, 
+                    sep=';',
+                    skiprows=4,
+                    on_bad_lines='skip'
+                )
                 break
-    
-    return custo_por_contrato, asset_detected
-
-def process_trading_data(df, filename=None):
-    """Processa os dados de trading do CSV."""
-    try:
-        df = df.copy()
+            except:
+                continue
+        
+        if df_original is None:
+            return pd.DataFrame(), "Erro ao ler CSV"
+        
+        df = df_original.copy()
         
         if df.empty:
-            return pd.DataFrame(), "Erro"
+            return pd.DataFrame(), "CSV vazio"
         
         df.columns = df.columns.str.strip()
         
-        custo_por_contrato, asset_info = detect_asset_cost(df)
+        # Detectar tipo de ativo e custo
+        custo_por_contrato = st.session_state.custo_wdo
+        asset_detected = "WDO (padrão)"
         
+        for col in df.columns:
+            if any(word in col.lower() for word in ['ativo', 'asset', 'symbol']):
+                if not df[col].empty:
+                    first_asset = str(df[col].dropna().iloc[0]).upper().strip()
+                    
+                    if len(first_asset) >= 2:
+                        first_two_chars = first_asset[:2]
+                        
+                        if first_two_chars == 'WD':
+                            custo_por_contrato = st.session_state.custo_wdo
+                            asset_detected = f"WD* ({first_asset})"
+                        elif first_two_chars == 'WI':
+                            custo_por_contrato = st.session_state.custo_win
+                            asset_detected = f"WI* ({first_asset})"
+                        else:
+                            custo_por_contrato = st.session_state.custo_wdo
+                            asset_detected = f"Outros ({first_asset})"
+                    break
+        
+        # Procurar coluna Total
         total_col = None
         for col in df.columns:
             if any(word in col.lower() for word in ['total', 'resultado', 'valor', 'saldo']):
@@ -288,8 +252,9 @@ def process_trading_data(df, filename=None):
                 break
         
         if total_col is None:
-            return pd.DataFrame(), "Erro"
+            return pd.DataFrame(), "Coluna Total não encontrada"
         
+        # Procurar colunas de quantidade
         qtd_compra_col = None
         qtd_venda_col = None
         
@@ -302,7 +267,7 @@ def process_trading_data(df, filename=None):
         df = df[df[total_col].notna() & (df[total_col] != '') & (df[total_col] != 'nan')]
         
         if df.empty:
-            return pd.DataFrame(), "Erro"
+            return pd.DataFrame(), "Nenhuma linha válida"
         
         def convert_total(value):
             try:
@@ -328,6 +293,7 @@ def process_trading_data(df, filename=None):
         
         df['Total'] = df[total_col].apply(convert_total)
         
+        # Calcular custos
         if qtd_compra_col and qtd_venda_col:
             df['Qtd_Compra'] = df[qtd_compra_col].apply(convert_quantity)
             df['Qtd_Venda'] = df[qtd_venda_col].apply(convert_quantity)
@@ -348,8 +314,9 @@ def process_trading_data(df, filename=None):
         df = df[df['Total_Contratos'] > 0]
         
         if df.empty:
-            return pd.DataFrame(), "Erro"
+            return pd.DataFrame(), "Nenhuma operação válida"
         
+        # Criar data automaticamente
         data_arquivo = None
         if filename:
             try:
@@ -403,10 +370,59 @@ def process_trading_data(df, filename=None):
             'Total_Contratos': 'sum'
         }).reset_index()
         
-        return daily_data[['Data', 'Total']], asset_info
+        return daily_data[['Data', 'Total']], asset_detected
         
+    except Exception as e:
+        return pd.DataFrame(), f"Erro: {str(e)}"
+
+# --- PASSO 3: ADICIONAR DADOS PROCESSADOS À ABA 'dados' ---
+def add_processed_data_to_sheets(df):
+    """PASSO 3: Adiciona dados processados à aba 'dados'."""
+    try:
+        gc = get_gspread_client()
+        if gc is None:
+            return False
+        
+        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
+        
+        existing_data = worksheet.get_all_records()
+        existing_dates = set()
+        
+        if existing_data:
+            for row in existing_data:
+                try:
+                    date_obj = pd.to_datetime(row['Data'], format='%d/%m/%Y')
+                    existing_dates.add(date_obj.date())
+                except:
+                    continue
+        
+        new_data = df.copy()
+        new_data['Data'] = pd.to_datetime(new_data['Data'])
+        
+        if existing_dates:
+            new_dates = set(new_data['Data'].dt.date)
+            dates_to_add = new_dates - existing_dates
+            
+            if dates_to_add:
+                new_data = new_data[new_data['Data'].dt.date.isin(dates_to_add)]
+            else:
+                return True
+        
+        if new_data.empty:
+            return True
+        
+        rows_to_add = []
+        for _, row in new_data.iterrows():
+            rows_to_add.append([
+                row['Data'].strftime('%d/%m/%Y'),
+                float(row['Total'])
+            ])
+        
+        worksheet.append_rows(rows_to_add)
+        return True
     except Exception:
-        return pd.DataFrame(), "Erro"
+        return False
 
 # --- Funções de Filtro ---
 def filter_data_by_date(df, year_filter, month_filter):
@@ -689,104 +705,21 @@ def create_trading_heatmap(df):
 def main():
     initialize_session_state()
     
-    # CSS APENAS COM PARTÍCULAS (sem background escuro)
+    # CSS simples sem partículas por enquanto
     st.markdown("""
     <style>
-    /* Remover background escuro - usar padrão do Streamlit */
     .stApp {
         position: relative !important;
         overflow-x: hidden !important;
         min-height: 100vh !important;
     }
     
-    /* Container de partículas - APENAS as fagulhas */
-    .particles {
-        position: fixed !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        overflow: hidden !important;
-        top: 0 !important;
-        left: 0 !important;
-        pointer-events: none !important;
-        z-index: -1 !important;
-    }
-    
-    /* Partículas individuais - fagulhas douradas */
-    .particle {
-        position: absolute !important;
-        border-radius: 50% !important;
-        background: radial-gradient(circle, #ffd700 0%, #ffaa00 50%, transparent 100%) !important;
-        animation: float 20s infinite linear !important;
-        display: block !important;
-        visibility: visible !important;
-        box-shadow: 0 0 6px #ffd700, 0 0 12px #ffd700 !important;
-    }
-    
-    /* Animação das partículas subindo */
-    @keyframes float {
-        0% {
-            transform: translateY(100vh) scale(0.5) !important;
-            opacity: 0 !important;
-        }
-        10% {
-            opacity: 0.8 !important;
-        }
-        50% {
-            opacity: 1 !important;
-        }
-        90% {
-            opacity: 0.6 !important;
-        }
-        100% {
-            transform: translateY(-10vh) scale(1.2) !important;
-            opacity: 0 !important;
-        }
-    }
-    
-    /* Garantir que todo conteúdo fique acima das partículas */
-    .main .block-container,
-    .stApp > div,
-    .stMarkdown,
-    .metric-container,
-    .vega-embed,
-    .stDataFrame,
-    .stSelectbox,
-    .stNumberInput,
-    .stFileUploader,
-    .stButton,
-    .stMetric,
-    .stColumns {
-        position: relative !important;
-        z-index: 1 !important;
-        background: transparent !important;
-    }
-    
-    /* Sidebar */
-    .css-1d391kg {
-        background-color: rgba(248, 249, 251, 0.95) !important;
-        backdrop-filter: blur(10px) !important;
-        position: relative !important;
-        z-index: 10 !important;
-    }
-    
-    /* Gráficos acima das partículas */
-    .vega-embed,
-    .vega-embed canvas,
-    .vega-embed svg {
-        background: transparent !important;
-        position: relative !important;
-        z-index: 5 !important;
-    }
-    
-    /* Botões */
     .stButton > button {
         background: linear-gradient(45deg, #3498db, #74b9ff) !important;
         color: white !important;
         border: none !important;
         box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4) !important;
         transition: all 0.3s ease !important;
-        position: relative !important;
-        z-index: 4 !important;
     }
     
     .stButton > button:hover {
@@ -794,75 +727,7 @@ def main():
         box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6) !important;
         transform: translateY(-2px) !important;
     }
-    
-    /* Upload area */
-    .stFileUploader > div {
-        background-color: rgba(248, 249, 251, 0.8) !important;
-        border: 2px dashed rgba(52, 152, 219, 0.5) !important;
-        backdrop-filter: blur(10px) !important;
-        position: relative !important;
-        z-index: 3 !important;
-    }
-    
-    /* Inputs */
-    .stNumberInput > div > div > input,
-    .stSelectbox > div > div > select {
-        position: relative !important;
-        z-index: 3 !important;
-    }
     </style>
-    
-    <!-- HTML para partículas douradas -->
-    <div class="particles" id="particles-container">
-        <div class="particle" style="width: 8px; height: 8px; left: 15%; animation-delay: 0s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 35%; animation-delay: 3s;"></div>
-        <div class="particle" style="width: 10px; height: 10px; left: 55%; animation-delay: 6s;"></div>
-        <div class="particle" style="width: 4px; height: 4px; left: 75%; animation-delay: 9s;"></div>
-        <div class="particle" style="width: 12px; height: 12px; left: 25%; animation-delay: 12s;"></div>
-        <div class="particle" style="width: 7px; height: 7px; left: 65%; animation-delay: 15s;"></div>
-        <div class="particle" style="width: 9px; height: 9px; left: 45%; animation-delay: 18s;"></div>
-        <div class="particle" style="width: 5px; height: 5px; left: 85%; animation-delay: 2s;"></div>
-        <div class="particle" style="width: 11px; height: 11px; left: 5%; animation-delay: 5s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 95%; animation-delay: 8s;"></div>
-        <div class="particle" style="width: 8px; height: 8px; left: 20%; animation-delay: 11s;"></div>
-        <div class="particle" style="width: 10px; height: 10px; left: 80%; animation-delay: 14s;"></div>
-        <div class="particle" style="width: 4px; height: 4px; left: 40%; animation-delay: 17s;"></div>
-        <div class="particle" style="width: 9px; height: 9px; left: 60%; animation-delay: 1s;"></div>
-        <div class="particle" style="width: 7px; height: 7px; left: 30%; animation-delay: 4s;"></div>
-        <div class="particle" style="width: 12px; height: 12px; left: 70%; animation-delay: 7s;"></div>
-        <div class="particle" style="width: 5px; height: 5px; left: 10%; animation-delay: 10s;"></div>
-        <div class="particle" style="width: 8px; height: 8px; left: 90%; animation-delay: 13s;"></div>
-        <div class="particle" style="width: 6px; height: 6px; left: 50%; animation-delay: 16s;"></div>
-        <div class="particle" style="width: 11px; height: 11px; left: 12%; animation-delay: 19s;"></div>
-    </div>
-    
-    <script>
-    // JavaScript para criar partículas adicionais
-    function createAdditionalParticles() {
-        const container = document.getElementById('particles-container');
-        if (container) {
-            // Criar 25 partículas adicionais
-            for (let i = 0; i < 25; i++) {
-                const particle = document.createElement('div');
-                particle.className = 'particle';
-                
-                const size = Math.random() * 8 + 4; // 4px a 12px
-                particle.style.width = size + 'px';
-                particle.style.height = size + 'px';
-                particle.style.left = Math.random() * 100 + '%';
-                particle.style.animationDelay = Math.random() * 20 + 's';
-                particle.style.display = 'block';
-                particle.style.visibility = 'visible';
-                
-                container.appendChild(particle);
-            }
-        }
-    }
-    
-    // Executar quando a página carregar
-    document.addEventListener('DOMContentLoaded', createAdditionalParticles);
-    setTimeout(createAdditionalParticles, 1000);
-    </script>
     """, unsafe_allow_html=True)
     
     # SIDEBAR COM FILTROS
@@ -943,60 +808,62 @@ def main():
     # CONTEÚDO PRINCIPAL
     st.title("📈 Trading Activity Dashboard")
     
-    # Processar upload
+    # PROCESSAR UPLOAD NA ORDEM CORRETA
     if uploaded_file is not None:
-        try:
-            filename = uploaded_file.name
-            
-            # Colar dados ORIGINAIS do CSV (sem processamento)
-            success_full, sheet_name = copy_full_csv_to_sheets(uploaded_file, filename)
-            
-            if success_full:
-                st.success(f"✅ CSV original colado: {sheet_name}")
-            
-            # Processar dados para dashboard usando pandas (COM custos)
-            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
-            df_original = None
-            
-            for encoding in encodings:
-                try:
-                    uploaded_file.seek(0)
-                    df_original = pd.read_csv(
-                        uploaded_file, 
-                        encoding=encoding, 
-                        sep=';',
-                        skiprows=4,
-                        on_bad_lines='skip'
-                    )
-                    break
-                except:
-                    continue
-            
-            if df_original is not None:
-                processed_result = process_trading_data(df_original, filename)
+        filename = uploaded_file.name
+        
+        # PASSO 1: COLAR DADOS BRUTOS
+        st.subheader("🔄 Processamento em Etapas")
+        
+        with st.expander("📋 PASSO 1: Colando dados brutos no Google Sheets", expanded=True):
+            with st.spinner("Colando dados originais do CSV..."):
+                success_copy, result_copy = copy_csv_to_sheets_first(uploaded_file, filename)
                 
-                if isinstance(processed_result, tuple):
-                    processed_df, asset_info = processed_result
+                if success_copy:
+                    st.success(f"✅ PASSO 1 CONCLUÍDO: {result_copy}")
                 else:
-                    processed_df = processed_result
-                    asset_info = "Processado"
-                
-                if not processed_df.empty:
-                    if append_data_to_sheets(processed_df):
-                        st.success(f"✅ Dados processados adicionados - {asset_info}")
-                        time.sleep(1)
-                        st.cache_data.clear()
-                        # Recarregar dados
-                        sheets_data = load_data_from_sheets()
-                        if sheets_data is not None:
-                            st.session_state.filtered_data = sheets_data
-        except Exception:
-            pass
+                    st.error(f"❌ PASSO 1 FALHOU: {result_copy}")
+        
+        # PASSO 2: PROCESSAR E APLICAR CUSTOS
+        if success_copy:
+            with st.expander("⚙️ PASSO 2: Processando dados e aplicando custos", expanded=True):
+                with st.spinner("Aplicando custos e processando dados..."):
+                    processed_df, asset_info = process_data_and_apply_costs(uploaded_file, filename)
+                    
+                    if not processed_df.empty:
+                        st.success(f"✅ PASSO 2 CONCLUÍDO: Dados processados - {asset_info}")
+                        
+                        # Mostrar resumo do processamento
+                        total_bruto = processed_df['Total'].sum()
+                        st.info(f"💰 Total processado: R$ {total_bruto:,.2f}")
+                        
+                        # PASSO 3: ADICIONAR À ABA 'dados'
+                        with st.expander("📊 PASSO 3: Adicionando à aba 'dados' para dashboard", expanded=True):
+                            with st.spinner("Adicionando dados processados à aba 'dados'..."):
+                                success_add = add_processed_data_to_sheets(processed_df)
+                                
+                                if success_add:
+                                    st.success("✅ PASSO 3 CONCLUÍDO: Dados adicionados à aba 'dados'")
+                                    
+                                    # Recarregar dados para dashboard
+                                    time.sleep(1)
+                                    st.cache_data.clear()
+                                    sheets_data = load_data_from_sheets()
+                                    if sheets_data is not None:
+                                        st.session_state.filtered_data = sheets_data
+                                        st.success("🔄 Dashboard atualizado com novos dados!")
+                                else:
+                                    st.error("❌ PASSO 3 FALHOU: Erro ao adicionar dados à aba 'dados'")
+                    else:
+                        st.error(f"❌ PASSO 2 FALHOU: {asset_info}")
     
-    # Exibir dashboard com dados filtrados
+    # PASSO 4: EXIBIR DASHBOARD
     display_data = st.session_state.filtered_data
     
     if display_data is not None and not display_data.empty:
+        st.markdown("---")
+        st.subheader("📊 PASSO 4: Dashboard com Dados Processados")
+        
         # Estatísticas
         create_statistics_container(display_data)
         
@@ -1024,11 +891,6 @@ def main():
                 st.altair_chart(histogram_chart, use_container_width=True)
             
             with col2:
-                st.altair_chart(radial_chart, use_container_width=True)
-        else:
-            if histogram_chart is not None:
-                st.altair_chart(histogram_chart, use_container_width=True)
-            if radial_chart is not None:
                 st.altair_chart(radial_chart, use_container_width=True)
     else:
         st.info("📋 Nenhum dado encontrado. Faça upload de um arquivo CSV para começar.")
