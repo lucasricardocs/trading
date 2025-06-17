@@ -6,6 +6,7 @@ import altair as alt
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.gridspec as gridspec
 import io
 import time
 import threading
@@ -223,18 +224,26 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_3d_heatmap(df_heatmap_final):
-    """Cria um heatmap 3D com design elegante, sem título nem legenda."""
+    """Cria um heatmap 3D com proporções garantidas."""
     
     plt.style.use('dark_background')
     
-    # Proporções personalizadas: comprimento 3x largura, altura 70% da largura
-    largura_base = 8
-    comprimento = largura_base * 3    # 24
-    altura = largura_base * 0.7       # 5.6
-    
-    fig = plt.figure(figsize=(comprimento, altura))
+    # Criar figura com gridspec para controle total das proporções
+    fig = plt.figure(figsize=(20, 6))  # Formato panorâmico
     fig.patch.set_alpha(0.0)
-    ax = fig.add_subplot(111, projection='3d')
+    
+    # Usar gridspec para controlar exatamente o espaço
+    gs = gridspec.GridSpec(1, 1, figure=fig, 
+                          left=0.02, right=0.98, 
+                          top=0.98, bottom=0.02)
+    
+    ax = fig.add_subplot(gs[0], projection='3d')
+    
+    # FORÇAR proporções 3D
+    try:
+        ax.set_box_aspect([4, 1, 0.6])  # [comprimento, largura, altura]
+    except:
+        pass  # Fallback para versões antigas do matplotlib
     
     ano_atual = datetime.now().year
     data_inicio = pd.Timestamp(f'{ano_atual}-01-01')
@@ -318,7 +327,7 @@ def create_3d_heatmap(df_heatmap_final):
     bars = ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True, alpha=0.95, 
                     edgecolor='#2a2a2a', linewidth=0.5)
     
-    # Configurar eixos SEM LABELS (removidos para design limpo)
+    # Configurar eixos SEM LABELS (design limpo)
     ax.set_xlabel('', fontsize=14, color='#e0e0e0', labelpad=15)
     ax.set_ylabel('', fontsize=14, color='#e0e0e0', labelpad=15)
     ax.set_zlabel('', fontsize=14, color='#e0e0e0', labelpad=15)
@@ -327,8 +336,6 @@ def create_3d_heatmap(df_heatmap_final):
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_zticks([])
-    
-    # SEM TÍTULO (removido conforme solicitado)
     
     # Configurar fundo completamente transparente
     ax.xaxis.pane.fill = False
@@ -339,17 +346,20 @@ def create_3d_heatmap(df_heatmap_final):
     ax.zaxis.pane.set_edgecolor('none')
     ax.grid(False)
     
-    # Ângulo otimizado
-    ax.view_init(elev=25, azim=-45)
+    # Limites específicos para manter proporção
+    ax.set_xlim(0, 53)  # 53 semanas
+    ax.set_ylim(-0.5, 6.5)  # 7 dias
+    ax.set_zlim(0, max(dz) * 1.1 if len(dz) > 0 else 1)
     
-    ax.set_xlim(0, max(x) + 1)
-    ax.set_ylim(-0.5, 6.5)
+    # Ângulo otimizado para formato panorâmico
+    ax.view_init(elev=12, azim=-20)
     
     # Salvar com alta qualidade
     buffer = io.BytesIO()
-    plt.savefig(buffer, format='png', dpi=200, bbox_inches='tight', 
-                facecolor='none', edgecolor='none', transparent=True,
-                pad_inches=0.1)
+    plt.savefig(buffer, format='png', dpi=300, 
+                bbox_inches='tight', facecolor='none', 
+                edgecolor='none', transparent=True,
+                pad_inches=0)
     buffer.seek(0)
     plt.close()
     
@@ -546,10 +556,13 @@ else:
             df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
             df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
             
-            # Heatmap 3D
+            # Heatmap 3D com controle de proporção
             heatmap_3d_buffer = create_3d_heatmap(df_heatmap_final)
             if heatmap_3d_buffer:
-                st.image(heatmap_3d_buffer, use_column_width=True)
+                # Usar colunas para controlar melhor a exibição
+                col1, col2, col3 = st.columns([0.5, 10, 0.5])
+                with col2:
+                    st.image(heatmap_3d_buffer, use_column_width=True)
             
             # Heatmap 2D
             df_heatmap_2d = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
