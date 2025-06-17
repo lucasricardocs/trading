@@ -79,8 +79,6 @@ css = f"""
     border: 1px solid #404040 !important;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
 }}
-</style>
-"""
 
 .spark {{
     position: fixed;
