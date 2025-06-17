@@ -230,10 +230,19 @@ def create_3d_heatmap(df_heatmap_final):
     # Configurar matplotlib para tema escuro
     plt.style.use('dark_background')
     
-    # Mapear dados seguindo a estrutura do exemplo
+    # CORREÇÃO: Usar pd.to_datetime e a sintaxe correta do pandas
     datas = pd.to_datetime(df_com_trades['Data'])
-    semanas = datas.isocalendar().week.values
-    dias_semana = datas.weekday.values  # 0=Segunda, 6=Domingo
+    
+    # CORREÇÃO: Usar a sintaxe correta para isocalendar
+    try:
+        # Para pandas >= 1.1.0
+        semanas = datas.dt.isocalendar().week.values
+        dias_semana = datas.dt.weekday.values
+    except AttributeError:
+        # Fallback para versões mais antigas do pandas
+        semanas = datas.dt.week.values
+        dias_semana = datas.dt.weekday.values
+    
     resultados = df_com_trades['RESULTADO_LIQUIDO'].values
     
     # Corrigir semanas para o início (seguindo o exemplo)
@@ -252,8 +261,7 @@ def create_3d_heatmap(df_heatmap_final):
     dx = dy = 0.8
     dz = np.abs(resultados)  # Altura baseada no valor absoluto
     
-    # Definir cores baseadas no resultado (adaptado para trading)
-    # Usar verde para positivos e vermelho para negativos
+    # Definir cores baseadas no resultado
     cores = []
     for resultado in resultados:
         if resultado > 0:
@@ -265,15 +273,15 @@ def create_3d_heatmap(df_heatmap_final):
             intensity = min(abs(resultado) / np.max(np.abs(resultados)), 1.0)
             cores.append(plt.cm.Reds(0.3 + 0.7 * intensity))
     
-    # Plotar barras (exatamente como no exemplo)
+    # Plotar barras
     ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True)
     
-    # Ajustar rótulos dos eixos (adaptado para trading)
+    # Configurar eixos
     ax.set_xlabel('Semana', fontsize=12, color='white')
     ax.set_ylabel('Dia da Semana', fontsize=12, color='white')
     ax.set_zlabel('Resultado Líquido (R$)', fontsize=12, color='white')
     
-    # Ajustar ticks dos dias da semana (exatamente como no exemplo)
+    # Configurar labels dos dias da semana
     ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
     ax.set_yticklabels(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'])
     
@@ -282,10 +290,10 @@ def create_3d_heatmap(df_heatmap_final):
     ax.tick_params(axis='y', colors='white')
     ax.tick_params(axis='z', colors='white')
     
-    # Aparência (mesmo ângulo do exemplo)
-    ax.view_init(elev=30, azim=-60)  # Ângulo 3D semelhante ao do GitHub
+    # Aparência
+    ax.view_init(elev=30, azim=-60)
     
-    # Título adaptado
+    # Título
     ano_atual = datetime.now().year
     plt.title(f'Resultados de Trading - {ano_atual}', fontsize=14, color='white', pad=20)
     
@@ -295,7 +303,7 @@ def create_3d_heatmap(df_heatmap_final):
     ax.zaxis.pane.fill = False
     ax.grid(True, alpha=0.3)
     
-    # Salvar em buffer para exibir no Streamlit
+    # Salvar em buffer
     buffer = io.BytesIO()
     plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight', 
                 facecolor='#1a1a1a', edgecolor='none')
@@ -303,6 +311,7 @@ def create_3d_heatmap(df_heatmap_final):
     plt.close()
     
     return buffer
+
 
 # --- Interface Principal ---
 st.title("📈 Análise de Operações de Trading")
