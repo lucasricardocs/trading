@@ -67,7 +67,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS Aprimorado com Containers Escuros Sólidos
+# CSS com Containers Coloridos Seguindo o Padrão da Sidebar
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -142,7 +142,7 @@ h2, h3 {{
     margin: 1rem 0 0.5rem 0;
 }}
 
-/* Sidebar */
+/* Sidebar com cor padrão */
 .css-1d391kg {{
     background: rgba(17, 17, 17, 0.95) !important;
     border-right: 1px solid #333;
@@ -206,32 +206,17 @@ h2, h3 {{
     border-radius: 6px;
 }}
 
-/* CONTAINERS ESCUROS SÓLIDOS */
-.chart-container {{
-    background: #1a1a1a;
-    border: 1px solid #333;
-    border-radius: 12px;
-    padding: 2rem;
-    margin: 1.5rem 0;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-}}
+/* CONTAINERS SEGUINDO O PADRÃO DA SIDEBAR */
 
-.chart-container h3 {{
-    color: #e8eaed;
-    margin-top: 0;
-    margin-bottom: 1.5rem;
-    font-size: 1.3rem;
-    font-weight: 500;
-}}
-
-/* Container específico para heatmap */
+/* Container para heatmap - Verde */
 .heatmap-container {{
-    background: #1a1a1a;
+    background: rgba(17, 17, 17, 0.95);
     border: 1px solid #28a745;
     border-radius: 12px;
     padding: 2rem;
     margin: 1.5rem 0;
-    box-shadow: 0 4px 20px rgba(40, 167, 69, 0.2);
+    backdrop-filter: blur(15px);
+    box-shadow: 0 4px 20px rgba(40, 167, 69, 0.3);
 }}
 
 .heatmap-container h3 {{
@@ -242,14 +227,15 @@ h2, h3 {{
     font-weight: 500;
 }}
 
-/* Container específico para evolução */
+/* Container para evolução - Roxo */
 .evolution-container {{
-    background: #1a1a1a;
+    background: rgba(17, 17, 17, 0.95);
     border: 1px solid #8a2be2;
     border-radius: 12px;
     padding: 2rem;
     margin: 1.5rem 0;
-    box-shadow: 0 4px 20px rgba(138, 43, 226, 0.2);
+    backdrop-filter: blur(15px);
+    box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
 }}
 
 .evolution-container h3 {{
@@ -260,14 +246,15 @@ h2, h3 {{
     font-weight: 500;
 }}
 
-/* Container específico para trades */
+/* Container para trades - Vermelho */
 .trades-container {{
-    background: #1a1a1a;
+    background: rgba(17, 17, 17, 0.95);
     border: 1px solid #dc3545;
     border-radius: 12px;
     padding: 2rem;
     margin: 1.5rem 0;
-    box-shadow: 0 4px 20px rgba(220, 53, 69, 0.2);
+    backdrop-filter: blur(15px);
+    box-shadow: 0 4px 20px rgba(220, 53, 69, 0.3);
 }}
 
 .trades-container h3 {{
@@ -276,6 +263,34 @@ h2, h3 {{
     margin-bottom: 1.5rem;
     font-size: 1.3rem;
     font-weight: 500;
+}}
+
+/* Container para dados - Azul */
+.data-container {{
+    background: rgba(17, 17, 17, 0.95);
+    border: 1px solid #4fc3f7;
+    border-radius: 12px;
+    padding: 2rem;
+    margin: 1.5rem 0;
+    backdrop-filter: blur(15px);
+    box-shadow: 0 4px 20px rgba(79, 195, 247, 0.3);
+}}
+
+.data-container h3 {{
+    color: #4fc3f7;
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 1.3rem;
+    font-weight: 500;
+}}
+
+/* Garantir que gráficos fiquem dentro dos containers */
+.heatmap-container .vega-embed,
+.evolution-container .vega-embed,
+.trades-container .vega-embed,
+.data-container .vega-embed {{
+    background: transparent !important;
+    border: none !important;
 }}
 
 {gerar_fagulhas(100)}
@@ -387,7 +402,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap com dias da semana completos e cores corretas - CORRIGIDO"""
+    """Heatmap com dias da semana completos e cores corretas"""
     if df_heatmap_final.empty:
         return None
     
@@ -421,7 +436,7 @@ def create_heatmap_2d_github(df_heatmap_final):
     full_df['month_name'] = full_df['Data_dt'].dt.strftime('%b')
     full_df['week_corrected'] = ((full_df['Data_dt'] - start_date).dt.days // 7)
     
-    # CORREÇÃO: Criar coluna de categoria para cores
+    # Criar coluna de categoria para cores
     def get_color_category(row):
         if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
             return 'fora_ano'
@@ -447,10 +462,9 @@ def create_heatmap_2d_github(df_heatmap_final):
         text='month_name:N'
     )
 
-    # CORREÇÃO: Usar escala de cores simples
     heatmap = alt.Chart(full_df).mark_rect(
-        stroke='white',  # STROKE BRANCO
-        strokeWidth=2,   # ESPAÇAMENTO ENTRE BLOCOS
+        stroke='white',
+        strokeWidth=2,
         cornerRadius=2
     ).encode(
         x=alt.X('week_corrected:O', title=None, axis=None),
@@ -475,7 +489,7 @@ def create_heatmap_2d_github(df_heatmap_final):
 def create_evolution_chart_with_gradient(df_area):
     """Gráfico de evolução com gradiente e stroke"""
     area_chart = alt.Chart(df_area).mark_area(
-        line={'strokeWidth': 4, 'stroke': '#ffffff'},  # STROKE BRANCO
+        line={'strokeWidth': 4, 'stroke': '#ffffff'},
         opacity=0.8,
         interpolate='monotone'
     ).encode(
@@ -483,8 +497,8 @@ def create_evolution_chart_with_gradient(df_area):
         y=alt.Y('Acumulado:Q', title=''),
         color=alt.condition(
             alt.datum.Acumulado >= 0,
-            alt.value('#28a745'),  # VERDE se positivo
-            alt.value('#dc3545')   # VERMELHO se negativo
+            alt.value('#28a745'),
+            alt.value('#dc3545')
         ),
         tooltip=[
             'Data:T', 
@@ -505,7 +519,6 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
         'Quantidade': [trades_ganhadores, trades_perdedores]
     })
     
-    # Filtrar apenas valores > 0
     pizza_data = pizza_data[pizza_data['Quantidade'] > 0]
     
     pie_chart = alt.Chart(pizza_data).mark_arc(
@@ -595,8 +608,12 @@ with st.sidebar:
 if df.empty:
     st.info("🔥 Adicione operações para começar")
 else:
-    with st.expander("📋 Dados"):
+    # Container para dados
+    st.markdown('<div class="data-container">', unsafe_allow_html=True)
+    st.markdown("### 📋 Dados das Operações")
+    with st.expander("Ver todas as operações"):
         st.dataframe(df, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if 'RESULTADO_LIQUIDO' in df_filtrado.columns and 'ABERTURA' in df_filtrado.columns:
         valor_total = df_filtrado['RESULTADO_LIQUIDO'].sum()
@@ -623,7 +640,7 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # Heatmap Anual
+        # Container Heatmap - Verde
         st.markdown('<div class="heatmap-container">', unsafe_allow_html=True)
         st.markdown("### 🔥 Atividade Anual")
         df_heatmap = df.copy()
@@ -645,7 +662,7 @@ else:
                 st.altair_chart(heatmap_2d_github, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Evolução Acumulada
+        # Container Evolução - Roxo
         st.markdown('<div class="evolution-container">', unsafe_allow_html=True)
         st.markdown("### 📊 Evolução Acumulada")
         if not df_por_dia.empty:
@@ -655,7 +672,7 @@ else:
             st.altair_chart(evolution_chart, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Resultados por Trade + Gráfico Radial
+        # Container Trades - Vermelho
         st.markdown('<div class="trades-container">', unsafe_allow_html=True)
         st.markdown("### 🎯 Resultados por Trade")
         
