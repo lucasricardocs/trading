@@ -67,7 +67,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS com Containers Escuros para Gráficos
+# CSS Minimalista
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -397,7 +397,6 @@ def create_heatmap_2d_github(df_heatmap_final):
         text='month_name:N'
     )
 
-    # CORREÇÃO: Dias fora do ano transparentes
     heatmap = alt.Chart(full_df).mark_rect(
         stroke='white',
         cornerRadius=2
@@ -410,7 +409,7 @@ def create_heatmap_2d_github(df_heatmap_final):
         color=alt.Color('color_category:N',
                        scale=alt.Scale(
                            domain=['fora_ano', 'vazio', 'positivo', 'negativo'],
-                           range=['transparent', '#cccccc', '#28a745', '#dc3545']  # TRANSPARENTE para fora do ano
+                           range=['transparent', '#cccccc', '#28a745', '#dc3545']
                        ),
                        legend=None),
         tooltip=[
@@ -486,7 +485,7 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
 # --- Interface ---
 st.title("🔥 Trading Analytics")
 
-# --- Sidebar LIMPA ---
+# --- Sidebar SEM CONTAINERS ---
 with st.sidebar:
     st.markdown("### ➕ Adicionar")
     
@@ -540,10 +539,11 @@ with st.sidebar:
         resumo_ativo = resumo_ativo.reset_index()
         st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
 
-# --- Corpo Principal ---
+# --- Corpo Principal SEM CONTAINERS DESNECESSÁRIOS ---
 if df.empty:
     st.info("🔥 Adicione operações para começar")
 else:
+    # Expander SEM container
     with st.expander("📋 Ver todas as operações"):
         st.dataframe(df, use_container_width=True)
 
@@ -561,7 +561,7 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # Métricas
+        # Métricas SEM container
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("💰 Total", f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
@@ -572,9 +572,9 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # Container para Heatmap
+        # CONTAINER APENAS para Heatmap
+        st.markdown("### 🔥 Atividade Anual")
         with st.container(border=True):
-            st.markdown("### 🔥 Atividade Anual")
             df_heatmap = df.copy()
             if not df_heatmap.empty and 'ABERTURA' in df_heatmap.columns:
                 df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
@@ -593,19 +593,18 @@ else:
                 if heatmap_2d_github:
                     st.altair_chart(heatmap_2d_github, use_container_width=True)
         
-        # Container para Evolução
+        # CONTAINER APENAS para Evolução
+        st.markdown("### 📊 Evolução Acumulada")
         with st.container(border=True):
-            st.markdown("### 📊 Evolução Acumulada")
             if not df_por_dia.empty:
                 df_area = df_por_dia.copy().sort_values('Data')
                 df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
                 evolution_chart = create_evolution_chart_with_gradient(df_area)
                 st.altair_chart(evolution_chart, use_container_width=True)
 
-        # Container para Trades
+        # CONTAINER APENAS para Trades
+        st.markdown("### 🎯 Resultados por Trade")
         with st.container(border=True):
-            st.markdown("### 🎯 Resultados por Trade")
-            
             col_trades, col_radial = st.columns([2, 1])
             
             with col_trades:
