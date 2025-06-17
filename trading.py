@@ -67,7 +67,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS com Containers Escuros Apenas para Gráficos
+# CSS com Containers Escuros para Gráficos
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -331,7 +331,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap minimalista com codificação de cores específica"""[3]
+    """Heatmap minimalista com bordas apenas nos dias do ano atual"""
     if df_heatmap_final.empty:
         return None
     
@@ -365,6 +365,13 @@ def create_heatmap_2d_github(df_heatmap_final):
     full_df['month_name'] = full_df['Data_dt'].dt.strftime('%b')
     full_df['week_corrected'] = ((full_df['Data_dt'] - start_date).dt.days // 7)
     
+    # CORREÇÃO: Definir stroke baseado no ano
+    def get_stroke_width(row):
+        if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
+            return 0  # SEM BORDA para dias fora do ano
+        else:
+            return 2  # COM BORDA para dias do ano atual
+    
     def get_color_category(row):
         if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
             return 'fora_ano'
@@ -376,6 +383,7 @@ def create_heatmap_2d_github(df_heatmap_final):
             return 'negativo'
     
     full_df['color_category'] = full_df.apply(get_color_category, axis=1)
+    full_df['stroke_width'] = full_df.apply(get_stroke_width, axis=1)
     
     month_labels = full_df[full_df['is_current_year']].groupby('month').agg(
         week_corrected=('week_corrected', 'min'),
@@ -390,15 +398,16 @@ def create_heatmap_2d_github(df_heatmap_final):
         text='month_name:N'
     )
 
+    # CORREÇÃO: Usar stroke condicional
     heatmap = alt.Chart(full_df).mark_rect(
         stroke='white',
-        strokeWidth=2,
         cornerRadius=2
     ).encode(
         x=alt.X('week_corrected:O', title=None, axis=None),
         y=alt.Y('day_display_name:N', sort=day_display_names, title=None,
                 axis=alt.Axis(labelAngle=0, labelFontSize=9, ticks=False, 
                              domain=False, grid=False, labelColor='#999', labelPadding=8)),
+        strokeWidth=alt.StrokeWidth('stroke_width:Q', legend=None),  # STROKE CONDICIONAL
         color=alt.Color('color_category:N',
                        scale=alt.Scale(
                            domain=['fora_ano', 'vazio', 'positivo', 'negativo'],
@@ -478,7 +487,7 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
 # --- Interface ---
 st.title("🔥 Trading Analytics")
 
-# --- Sidebar SEM CONTAINERS ---
+# --- Sidebar ---
 with st.sidebar:
     st.markdown("### ➕ Adicionar")
     
@@ -533,11 +542,10 @@ with st.sidebar:
         resumo_ativo = resumo_ativo.reset_index()
         st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
 
-# --- Corpo Principal SEM CONTAINERS DESNECESSÁRIOS ---
+# --- Corpo Principal ---
 if df.empty:
     st.info("🔥 Adicione operações para começar")
 else:
-    # Expander SEM container
     with st.expander("📋 Ver todas as operações"):
         st.dataframe(df, use_container_width=True)
 
@@ -555,7 +563,7 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # Métricas SEM container
+        # Métricas
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("💰 Total", f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
@@ -566,7 +574,7 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # Container APENAS para Heatmap
+        # Container para Heatmap
         with st.container(border=True):
             st.markdown("### 🔥 Atividade Anual")
             df_heatmap = df.copy()
@@ -587,7 +595,7 @@ else:
                 if heatmap_2d_github:
                     st.altair_chart(heatmap_2d_github, use_container_width=True)
         
-        # Container APENAS para Evolução
+        # Container para Evolução
         with st.container(border=True):
             st.markdown("### 📊 Evolução Acumulada")
             if not df_por_dia.empty:
@@ -596,7 +604,7 @@ else:
                 evolution_chart = create_evolution_chart_with_gradient(df_area)
                 st.altair_chart(evolution_chart, use_container_width=True)
 
-        # Container APENAS para Trades
+        # Container para Trades
         with st.container(border=True):
             st.markdown("### 🎯 Resultados por Trade")
             
