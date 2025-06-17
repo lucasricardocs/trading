@@ -26,9 +26,10 @@ st.set_page_config(
 )
 
 # --- Cores Padrão ---
-COLOR_POSITIVE = "#28a745"
-COLOR_NEGATIVE = "#dc3545"
-COLOR_NEUTRAL = "#4fc3f7"
+COLOR_POSITIVE = "#28a745"  # Verde
+COLOR_NEGATIVE = "#dc3545"  # Vermelho
+COLOR_NEUTRAL = "#4fc3f7"   # Azul
+COLOR_BASE = "#f0f0f0"      # Cinza claro
 
 # --- Funções ---
 @st.cache_resource
@@ -142,8 +143,8 @@ def formatar_moeda(valor):
         # Fallback para valores simples
         return f"R$ {valor:.2f}"
 
-def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap minimalista com dias fora do ano transparentes"""
+def create_heatmap_trading_style(df_heatmap_final):
+    """Heatmap aprimorado no estilo trading"""
     if df_heatmap_final.empty:
         return None
     
@@ -169,70 +170,112 @@ def create_heatmap_2d_github(df_heatmap_final):
     full_df['day_of_week'] = full_df['Data_dt'].dt.weekday
     
     # Dias da semana completos
-    day_name_map = {0: 'Segunda', 1: 'Terça', 2: 'Quarta', 3: 'Quinta', 4: 'Sexta', 5: 'Sábado', 6: 'Domingo'}
+    day_name_map = {0: 'Seg', 1: 'Ter', 2: 'Qua', 3: 'Qui', 4: 'Sex', 5: 'Sáb', 6: 'Dom'}
     full_df['day_display_name'] = full_df['day_of_week'].map(day_name_map)
-    day_display_names = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+    day_display_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
     
     full_df['month'] = full_df['Data_dt'].dt.month
     full_df['month_name'] = full_df['Data_dt'].dt.strftime('%b')
     full_df['week_corrected'] = ((full_df['Data_dt'] - start_date).dt.days // 7)
     
-    def get_stroke_width(row):
-        if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
-            return 0
-        else:
-            return 2
-    
+    # Definir categorias de cores baseado no valor
     def get_color_category(row):
         if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
             return 'fora_ano'
         elif row['display_resultado'] == 0:
-            return 'vazio'
+            return 'neutro'
         elif row['display_resultado'] > 0:
-            return 'positivo'
+            # 3 níveis de verde
+            if row['display_resultado'] > 3000:
+                return 'positivo_forte'
+            elif row['display_resultado'] > 1000:
+                return 'positivo_medio'
+            else:
+                return 'positivo_fraco'
         else:
-            return 'negativo'
+            # 3 níveis de vermelho
+            if row['display_resultado'] < -3000:
+                return 'negativo_forte'
+            elif row['display_resultado'] < -1000:
+                return 'negativo_medio'
+            else:
+                return 'negativo_fraco'
     
     full_df['color_category'] = full_df.apply(get_color_category, axis=1)
-    full_df['stroke_width'] = full_df.apply(get_stroke_width, axis=1)
     
+    # Mapeamento de cores aprimorado
+    color_scale = alt.Scale(
+        domain=['fora_ano', 'neutro', 
+                'positivo_fraco', 'positivo_medio', 'positivo_forte',
+                'negativo_fraco', 'negativo_medio', 'negativo_forte'],
+        range=['transparent', COLOR_BASE,
+               '#e6f4ea', '#a7d7b8', '#28a745',  # Tons de verde
+               '#fce8e6', '#f4a9a9', '#dc3545']   # Tons de vermelho
+    )
+    
+    # Legendas dos meses
     month_labels = full_df[full_df['is_current_year']].groupby('month').agg(
         week_corrected=('week_corrected', 'min'),
         month_name=('month_name', 'first')
     ).reset_index()
 
     months_chart = alt.Chart(month_labels).mark_text(
-        align='center', baseline='bottom', fontSize=10, dy=-3, dx=-20,
-        color='#999', fontWeight='normal'
+        align='center', baseline='bottom', fontSize=12, dy=-5,
+        color='#555', fontWeight='bold'
     ).encode(
         x=alt.X('week_corrected:O', axis=None),
         text='month_name:N'
     )
 
+    # Heatmap principal
     heatmap = alt.Chart(full_df).mark_rect(
         stroke='white',
-        strokeWidth=2,
+        strokeWidth=1,
         cornerRadius=2
     ).encode(
         x=alt.X('week_corrected:O', title=None, axis=None),
         y=alt.Y('day_display_name:N', sort=day_display_names, title=None,
-                axis=alt.Axis(labelAngle=0, labelFontSize=9, ticks=False, 
-                             domain=False, grid=False, labelColor='#999', labelPadding=8)),
-        strokeWidth=alt.StrokeWidth('stroke_width:Q', legend=None),
-        color=alt.Color('color_category:N',
-                       scale=alt.Scale(
-                           domain=['fora_ano', 'vazio', 'positivo', 'negativo'],
-                           range=['transparent', '#cccccc', COLOR_POSITIVE, COLOR_NEGATIVE]
-                       ),
-                       legend=None),
+                axis=alt.Axis(labelAngle=0, labelFontSize=11, ticks=False, 
+                             domain=False, grid=False, labelColor='#555')),
+        color=alt.Color('color_category:N', scale=color_scale, legend=None),
         tooltip=[
-            alt.Tooltip('Data:T', title='Data', format='%d/%m'),
-            alt.Tooltip('RESULTADO_LIQUIDO:Q', title='R$', format=',.0f')
+            alt.Tooltip('Data:T', title='Data', format='%d/%m/%Y'),
+            alt.Tooltip('day_display_name:N', title='Dia da Semana'),
+            alt.Tooltip('RESULTADO_LIQUIDO:Q', title='Resultado (R$)', format=',.0f')
         ]
-    ).properties(height=200)
+    ).properties(
+        height=220
+    )
 
-    return alt.vconcat(months_chart, heatmap, spacing=5).configure_view(
-        strokeWidth=0).configure(background='transparent')
+    # Legenda de cores
+    legend_data = pd.DataFrame({
+        'Categoria': ['Forte Positivo', 'Médio Positivo', 'Fraco Positivo', 
+                      'Neutro', 'Fraco Negativo', 'Médio Negativo', 'Forte Negativo'],
+        'Cor': ['#28a745', '#a7d7b8', '#e6f4ea', COLOR_BASE, 
+                '#fce8e6', '#f4a9a9', '#dc3545'],
+        'Valor Min': [3000, 1000, 0.01, 0, -0.01, -1000, -3000],
+        'Valor Max': [None, 3000, 1000, 0.01, -0.01, -1000, None]
+    })
+    
+    legend = alt.Chart(legend_data).mark_rect().encode(
+        y=alt.Y('Categoria:N', axis=alt.Axis(title=None, orient='right')),
+        color=alt.Color('Cor:N', scale=alt.Scale(domain=legend_data['Cor'].tolist(), 
+                                               range=legend_data['Cor'].tolist()),
+                       legend=None)
+    ).properties(
+        title='Legenda de Resultados',
+        width=20,
+        height=200
+    )
+
+    # Combinar gráficos
+    chart = alt.vconcat(months_chart, heatmap, spacing=1).configure_view(
+        strokeWidth=0
+    ).configure(
+        background='transparent'
+    )
+    
+    return chart
 
 def create_evolution_chart(df_area):
     """Gráfico de evolução com stroke 2"""
@@ -432,7 +475,7 @@ else:
             df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
             df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
             
-            heatmap = create_heatmap_2d_github(df_heatmap_final)
+            heatmap = create_heatmap_trading_style(df_heatmap_final)
             if heatmap:
                 st.altair_chart(heatmap, use_container_width=True)
         
