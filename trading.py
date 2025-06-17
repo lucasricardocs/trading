@@ -229,7 +229,7 @@ def create_3d_heatmap(df_heatmap_final):
     plt.style.use('dark_background')
     
     # Tamanho reduzido para ficar similar ao heatmap 2D
-    fig = plt.figure(figsize=(8, 2))  # Reduzido de (20, 6) para (12, 4)
+    fig = plt.figure(figsize=(12, 4))  # Reduzido de (20, 6) para (12, 4)
     fig.patch.set_alpha(0.0)
     
     # Usar gridspec para controle total
@@ -325,7 +325,7 @@ def create_3d_heatmap(df_heatmap_final):
     
     # Plotar barras
     bars = ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True, alpha=0.95, 
-                    edgecolor='#2a2a2a', linewidth=1)  # Linha mais fina
+                    edgecolor='#2a2a2a', linewidth=0.2)  # Linha mais fina
     
     # Configurar eixos SEM LABELS
     ax.set_xlabel('', fontsize=12, color='#e0e0e0')
