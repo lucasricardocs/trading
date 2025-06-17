@@ -5,8 +5,7 @@ import pandas as pd
 import altair as alt
 import numpy as np
 import time
-import random
-from datetime import datetime, timedelta, date
+from datetime import datetime, date
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import SpreadsheetNotFound
 import warnings
@@ -30,8 +29,6 @@ st.set_page_config(
 COLOR_POSITIVE = "#28a745"
 COLOR_NEGATIVE = "#dc3545"
 COLOR_NEUTRAL = "#4fc3f7"
-COLOR_BG = "#0e1117"
-COLOR_CONTAINER = "#19222e"
 
 # --- Funções ---
 @st.cache_resource
@@ -118,18 +115,6 @@ def add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultad
             st.error(f"Erro: {e}")
             return False
     return False
-
-def calcular_largura_e_espacamento(num_elementos):
-    if num_elementos <= 5:
-        return {'size': 60, 'padding': 0.3}
-    elif num_elementos <= 15:
-        return {'size': 45, 'padding': 0.2}
-    elif num_elementos <= 30:
-        return {'size': 30, 'padding': 0.1}
-    elif num_elementos <= 50:
-        return {'size': 20, 'padding': 0.05}
-    else:
-        return {'size': 15, 'padding': 0.02}
 
 def formatar_moeda(valor):
     """Formata valor monetário com símbolo R$ e separadores brasileiros"""
@@ -268,12 +253,12 @@ def create_evolution_chart(df_area):
             alt.Tooltip('Acumulado:Q', format=',.0f', title='Acumulado'), 
             alt.Tooltip('Resultado_Liquido_Dia:Q', format=',.0f', title='Dia')
         ]
-    ).properties(width='container', height=300)
+    ).properties(height=300)
     
     return area_chart.configure(background='transparent')
 
 def create_radial_chart(trades_ganhadores, trades_perdedores):
-    """Cria gráfico radial no estilo minimalista"""
+    """Cria gráfico radial minimalista"""
     if trades_ganhadores == 0 and trades_perdedores == 0:
         return None
     
@@ -303,38 +288,39 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
     )
     
     chart = (c1 + c2).properties(
-        width=250,
-        height=250,
+        height=250
     )
     
     return chart.configure(background='transparent')
 
-def create_bar_chart(data, x, y, title, color=COLOR_NEUTRAL, stroke_width=2):
-    """Cria gráfico de barras padronizado"""
-    return alt.Chart(data).mark_bar(
+def create_histogram_chart(df_filtrado):
+    """Cria histograma de resultados"""
+    return alt.Chart(df_filtrado).mark_bar(
         stroke='white',
-        strokeWidth=stroke_width
+        strokeWidth=2
     ).encode(
-        x=alt.X(x, title=''),
-        y=alt.Y(y, title=''),
-        color=alt.value(color)
-    ).properties(
-        title=title,
-        height=300
-    ).configure(background='transparent')
+        alt.X("RESULTADO_LIQUIDO:Q", bin=True, title="Resultado (R$)"),
+        alt.Y('count()', title="Quantidade de Trades"),
+        color=alt.value(COLOR_NEUTRAL)
+    ).properties(height=300).configure(background='transparent')
 
-def create_line_chart(data, x, y, title, color=COLOR_NEUTRAL, stroke_width=2):
-    """Cria gráfico de linha padronizado"""
-    return alt.Chart(data).mark_line(
-        strokeWidth=stroke_width
+def create_hourly_chart(df_filtrado):
+    """Gráfico de performance por horário"""
+    df_filtrado['HORA'] = df_filtrado['ABERTURA'].dt.hour
+    performance_horario = df_filtrado.groupby('HORA')['RESULTADO_LIQUIDO'].mean().reset_index()
+    
+    return alt.Chart(performance_horario).mark_bar(
+        stroke='white',
+        strokeWidth=2
     ).encode(
-        x=alt.X(x, title=''),
-        y=alt.Y(y, title=''),
-        color=alt.value(color)
-    ).properties(
-        title=title,
-        height=300
-    ).configure(background='transparent')
+        x='HORA:O',
+        y='RESULTADO_LIQUIDO:Q',
+        color=alt.condition(
+            alt.datum.RESULTADO_LIQUIDO >= 0,
+            alt.value(COLOR_POSITIVE),
+            alt.value(COLOR_NEGATIVE)
+        )
+    ).properties(height=300).configure(background='transparent')
 
 # --- Interface ---
 st.title("📊 Trading Analytics")
@@ -343,8 +329,7 @@ st.title("📊 Trading Analytics")
 with st.sidebar:
     st.header("Operações")
     
-    with st.container():
-        st.subheader("Adicionar Nova Operação")
+    with st.expander("➕ Adicionar Nova Operação", expanded=True):
         with st.form("nova_operacao"):
             ativo = st.selectbox("Ativo", ["WDOFUT", "WINFUT"])
             data_abertura = st.date_input("Data", value=date.today())
@@ -373,20 +358,20 @@ with st.sidebar:
     
     df = load_data()
     
-    with st.container():
+    with st.expander("🔎 Período", expanded=True):
         if not df.empty and 'ABERTURA' in df.columns:
             data_min = df['ABERTURA'].min().date()
             data_max = df['ABERTURA'].max().date()
             data_inicial, data_final = st.date_input(
-                "Período", value=(data_min, data_max),
+                "Intervalo de Datas", value=(data_min, data_max),
                 min_value=data_min, max_value=data_max
             )
             df_filtrado = df[(df['ABERTURA'].dt.date >= data_inicial) & (df['ABERTURA'].dt.date <= data_final)]
         else:
             df_filtrado = df.copy()
 
-    st.header("Resumo por Ativo")
-    with st.container():
+    st.header("Resumo")
+    with st.expander("📊 Por Ativo", expanded=True):
         if not df_filtrado.empty:
             resumo_ativo = df_filtrado.groupby('ATIVO').agg({
                 'RESULTADO_LIQUIDO': ['count', 'sum', 'mean']
@@ -411,9 +396,12 @@ else:
     trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
     taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
     
-    # Container 1: Métricas Principais
-    with st.container():
-        st.subheader("📊 Métricas Principais")
+    # Criar abas
+    tab1, tab2, tab3 = st.tabs(["Visão Geral", "Análise de Risco", "Performance"])
+    
+    with tab1:
+        # --- Métricas Principais ---
+        st.subheader("Métricas Principais")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -427,187 +415,118 @@ else:
         
         with col4:
             st.metric("✅ Taxa de Acerto", f"{taxa_acerto:.0f}%")
-    
-    # Container 2: Gráficos Principais
-    col_graf1, col_graf2 = st.columns(2)
-    
-    with col_graf1:
-        with st.container():
-            st.subheader("🔥 Atividade Anual")
-            if not df.empty and 'ABERTURA' in df.columns:
-                df_heatmap = df.copy()
-                df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
-                df_heatmap_grouped = df_heatmap.groupby('Data')['RESULTADO_LIQUIDO'].sum().reset_index()
-                
-                ano_atual = datetime.now().year
-                data_inicio = pd.Timestamp(f'{ano_atual}-01-01').date()
-                data_fim = pd.Timestamp(f'{ano_atual}-12-31').date()
-                
-                date_range = pd.date_range(start=data_inicio, end=data_fim, freq='D')
-                df_complete = pd.DataFrame({'Data': date_range.date})
-                df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
-                df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
-                
-                heatmap_2d_github = create_heatmap_2d_github(df_heatmap_final)
-                if heatmap_2d_github:
-                    st.altair_chart(heatmap_2d_github, use_container_width=True)
-    
-    with col_graf2:
-        with st.container():
-            st.subheader("📈 Evolução Acumulada")
-            if not df_por_dia.empty:
-                df_area = df_por_dia.copy().sort_values('Data')
-                df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
-                evolution_chart = create_evolution_chart(df_area)
-                st.altair_chart(evolution_chart, use_container_width=True)
-    
-    # Container 3: Análise de Desempenho
-    with st.container():
-        st.subheader("📈 Análise de Desempenho")
-        col_met1, col_met2, col_met3 = st.columns(3)
         
-        with col_met1:
+        # --- Atividade Anual ---
+        st.subheader("Atividade Anual")
+        if not df.empty and 'ABERTURA' in df.columns:
+            df_heatmap = df.copy()
+            df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
+            df_heatmap_grouped = df_heatmap.groupby('Data')['RESULTADO_LIQUIDO'].sum().reset_index()
+            
+            ano_atual = datetime.now().year
+            data_inicio = pd.Timestamp(f'{ano_atual}-01-01').date()
+            data_fim = pd.Timestamp(f'{ano_atual}-12-31').date()
+            
+            date_range = pd.date_range(start=data_inicio, end=data_fim, freq='D')
+            df_complete = pd.DataFrame({'Data': date_range.date})
+            df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
+            df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
+            
+            heatmap = create_heatmap_2d_github(df_heatmap_final)
+            if heatmap:
+                st.altair_chart(heatmap, use_container_width=True)
+        
+        # --- Evolução Acumulada ---
+        st.subheader("Evolução Acumulada")
+        if not df_por_dia.empty:
+            df_area = df_por_dia.copy().sort_values('Data')
+            df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
+            evolution_chart = create_evolution_chart(df_area)
+            st.altair_chart(evolution_chart, use_container_width=True)
+    
+    with tab2:
+        # --- Métricas de Risco ---
+        st.subheader("Métricas de Risco")
+        col5, col6, col7 = st.columns(3)
+        
+        with col5:
             if not df_por_dia.empty:
                 max_drawdown = (df_area['Acumulado'].cummax() - df_area['Acumulado']).max()
                 st.metric("📉 Máximo Drawdown", formatar_moeda(max_drawdown))
         
-        with col_met2:
+        with col6:
             if len(df_filtrado) > 1:
                 sharpe_ratio = (media_resultado / df_filtrado['RESULTADO_LIQUIDO'].std()) * np.sqrt(252)
                 st.metric("⚖️ Índice Sharpe", f"{sharpe_ratio:.2f}")
         
-        with col_met3:
+        with col7:
             if trades_perdedores > 0:
                 win_loss_ratio = trades_ganhadores / trades_perdedores
                 st.metric("📊 Ratio Win/Loss", f"{win_loss_ratio:.2f}:1")
             elif trades_ganhadores > 0:
                 st.metric("📊 Ratio Win/Loss", f"{trades_ganhadores}:0")
-    
-    # Container 4: Gráficos Secundários
-    col_sec1, col_sec2 = st.columns(2)
-    
-    with col_sec1:
-        with st.container():
-            st.subheader("📊 Distribuição de Resultados")
+        
+        # --- Histograma e Radial lado a lado ---
+        col_hist, col_radial = st.columns([2, 1])
+        
+        with col_hist:
+            st.subheader("Distribuição de Resultados")
             if not df_filtrado.empty:
-                hist_values = df_filtrado['RESULTADO_LIQUIDO']
-                hist_chart = alt.Chart(df_filtrado).mark_bar(
-                    stroke='white',
-                    strokeWidth=2
-                ).encode(
-                    alt.X("RESULTADO_LIQUIDO:Q", bin=True, title="Resultado (R$)"),
-                    alt.Y('count()', title="Quantidade de Trades"),
-                    color=alt.value(COLOR_NEUTRAL)
-                ).properties(height=300)
+                hist_chart = create_histogram_chart(df_filtrado)
                 st.altair_chart(hist_chart, use_container_width=True)
-    
-    with col_sec2:
-        with st.container():
-            st.subheader("🕒 Performance por Horário")
-            if 'ABERTURA' in df_filtrado.columns:
-                df_filtrado['HORA'] = df_filtrado['ABERTURA'].dt.hour
-                performance_horario = df_filtrado.groupby('HORA')['RESULTADO_LIQUIDO'].mean().reset_index()
-                bar_chart = alt.Chart(performance_horario).mark_bar(
-                    stroke='white',
-                    strokeWidth=2
-                ).encode(
-                    x='HORA:O',
-                    y='RESULTADO_LIQUIDO:Q',
-                    color=alt.condition(
-                        alt.datum.RESULTADO_LIQUIDO >= 0,
-                        alt.value(COLOR_POSITIVE),
-                        alt.value(COLOR_NEGATIVE)
-                    )
-                ).properties(height=300)
-                st.altair_chart(bar_chart, use_container_width=True)
-    
-    # Container 5: Análise Detalhada
-    with st.container():
-        st.subheader("🔍 Análise Detalhada")
-        col_det1, col_det2 = st.columns(2)
         
-        with col_det1:
-            with st.container():
-                st.subheader("🏆 Melhores Operações")
-                if not df_filtrado.empty:
-                    top_ganhos = df_filtrado.nlargest(5, 'RESULTADO_LIQUIDO')[['ATIVO', 'ABERTURA', 'QUANTIDADE', 'RESULTADO_LIQUIDO']]
-                    st.dataframe(top_ganhos.style.format({
-                        'RESULTADO_LIQUIDO': lambda x: formatar_moeda(x),
-                        'ABERTURA': lambda x: x.strftime('%d/%m/%Y')
-                    }), height=300)
+        with col_radial:
+            st.subheader("Distribuição de Trades")
+            radial_chart = create_radial_chart(trades_ganhadores, trades_perdedores)
+            if radial_chart:
+                st.altair_chart(radial_chart, use_container_width=True)
+            else:
+                st.info("Sem dados suficientes")
+    
+    with tab3:
+        # --- Performance por Horário ---
+        st.subheader("Performance por Horário")
+        if 'ABERTURA' in df_filtrado.columns:
+            hourly_chart = create_hourly_chart(df_filtrado)
+            st.altair_chart(hourly_chart, use_container_width=True)
         
-        with col_det2:
-            with st.container():
-                st.subheader("📉 Piores Operações")
-                if not df_filtrado.empty:
-                    top_perdas = df_filtrado.nsmallest(5, 'RESULTADO_LIQUIDO')[['ATIVO', 'ABERTURA', 'QUANTIDADE', 'RESULTADO_LIQUIDO']]
-                    st.dataframe(top_perdas.style.format({
-                        'RESULTADO_LIQUIDO': lambda x: formatar_moeda(x),
-                        'ABERTURA': lambda x: x.strftime('%d/%m/%Y')
-                    }), height=300)
-    
-    # Container 6: Gráficos Adicionais
-    col_add1, col_add2 = st.columns(2)
-    
-    with col_add1:
-        with st.container():
-            st.subheader("💹 Resultado vs Volume")
-            if 'QUANTIDADE' in df_filtrado.columns:
-                scatter_data = df_filtrado[['QUANTIDADE', 'RESULTADO_LIQUIDO']]
-                scatter_chart = alt.Chart(scatter_data).mark_circle(
-                    stroke='white',
-                    strokeWidth=1
-                ).encode(
-                    x='QUANTIDADE:Q',
-                    y='RESULTADO_LIQUIDO:Q',
-                    color=alt.condition(
-                        alt.datum.RESULTADO_LIQUIDO >= 0,
-                        alt.value(COLOR_POSITIVE),
-                        alt.value(COLOR_NEGATIVE)
-                    ),
-                    tooltip=['QUANTIDADE', 'RESULTADO_LIQUIDO']
-                ).properties(height=300)
-                st.altair_chart(scatter_chart, use_container_width=True)
-    
-    with col_add2:
-        with st.container():
-            st.subheader("🔄 Sazonalidade Semanal")
+        # --- Top Operações ---
+        col_top1, col_top2 = st.columns(2)
+        
+        with col_top1:
+            st.subheader("Melhores Operações")
             if not df_filtrado.empty:
-                df_filtrado['DIA_SEMANA'] = df_filtrado['ABERTURA'].dt.day_name()
-                performance_dia = df_filtrado.groupby('DIA_SEMANA')['RESULTADO_LIQUIDO'].mean().reset_index()
-                
-                # Ordenar dias da semana
-                dias_ordenados = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                nomes_pt = {
-                    'Monday': 'Segunda',
-                    'Tuesday': 'Terça',
-                    'Wednesday': 'Quarta',
-                    'Thursday': 'Quinta',
-                    'Friday': 'Sexta',
-                    'Saturday': 'Sábado',
-                    'Sunday': 'Domingo'
-                }
-                performance_dia['DIA_SEMANA'] = pd.Categorical(
-                    performance_dia['DIA_SEMANA'], 
-                    categories=dias_ordenados,
-                    ordered=True
-                )
-                performance_dia = performance_dia.sort_values('DIA_SEMANA')
-                performance_dia['DIA'] = performance_dia['DIA_SEMANA'].map(nomes_pt)
-                
-                bar_chart = alt.Chart(performance_dia).mark_bar(
-                    stroke='white',
-                    strokeWidth=2
-                ).encode(
-                    x='DIA:O',
-                    y='RESULTADO_LIQUIDO:Q',
-                    color=alt.condition(
-                        alt.datum.RESULTADO_LIQUIDO >= 0,
-                        alt.value(COLOR_POSITIVE),
-                        alt.value(COLOR_NEGATIVE)
-                    )
-                ).properties(height=300)
-                st.altair_chart(bar_chart, use_container_width=True)
+                top_ganhos = df_filtrado.nlargest(5, 'RESULTADO_LIQUIDO')[['ATIVO', 'ABERTURA', 'QUANTIDADE', 'RESULTADO_LIQUIDO']]
+                top_ganhos['ABERTURA'] = top_ganhos['ABERTURA'].dt.strftime('%d/%m/%Y')
+                top_ganhos['RESULTADO_LIQUIDO'] = top_ganhos['RESULTADO_LIQUIDO'].apply(formatar_moeda)
+                st.dataframe(top_ganhos, hide_index=True)
+        
+        with col_top2:
+            st.subheader("Piores Operações")
+            if not df_filtrado.empty:
+                top_perdas = df_filtrado.nsmallest(5, 'RESULTADO_LIQUIDO')[['ATIVO', 'ABERTURA', 'QUANTIDADE', 'RESULTADO_LIQUIDO']]
+                top_perdas['ABERTURA'] = top_perdas['ABERTURA'].dt.strftime('%d/%m/%Y')
+                top_perdas['RESULTADO_LIQUIDO'] = top_perdas['RESULTADO_LIQUIDO'].apply(formatar_moeda)
+                st.dataframe(top_perdas, hide_index=True)
+        
+        # --- Resultado vs Volume ---
+        st.subheader("Resultado vs Volume de Contratos")
+        if 'QUANTIDADE' in df_filtrado.columns:
+            scatter_data = df_filtrado[['QUANTIDADE', 'RESULTADO_LIQUIDO']]
+            scatter_chart = alt.Chart(scatter_data).mark_circle(
+                stroke='white',
+                strokeWidth=1
+            ).encode(
+                x='QUANTIDADE:Q',
+                y='RESULTADO_LIQUIDO:Q',
+                color=alt.condition(
+                    alt.datum.RESULTADO_LIQUIDO >= 0,
+                    alt.value(COLOR_POSITIVE),
+                    alt.value(COLOR_NEGATIVE)
+                ),
+                tooltip=['QUANTIDADE', 'RESULTADO_LIQUIDO']
+            ).properties(height=300)
+            st.altair_chart(scatter_chart.configure(background='transparent'), use_container_width=True)
 
 # Rodapé
 st.caption("📊 Trading Analytics • 2025 • Desenvolvido com Streamlit")
