@@ -484,7 +484,7 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
 st.title("🔥 Trading Analytics")
 
 # --- Sidebar ---
-with st.sidebar:
+st.sidebar:
     st.markdown("### ➕ Adicionar")
     
     with st.form("nova_operacao"):
