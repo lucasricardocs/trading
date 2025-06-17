@@ -1,6 +1,9 @@
 import streamlit as st
+import random
 
-# CSS para efeito de fundo com partículas claras (fagulhas)
+st.set_page_config(page_title="Fagulhas Realistas", layout="wide")
+
+# CSS com partículas aprimoradas
 css = """
 <style>
 body {
@@ -8,64 +11,42 @@ body {
     overflow: hidden;
 }
 
-/* Criando partículas */
-.particle {
+.spark {
     position: fixed;
-    border-radius: 50%;
-    background-color: rgba(255, 255, 255, 0.8);
-    animation: move 10s linear infinite;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 50%%;
+    opacity: 0;
+    filter: blur(1px);
+    animation: rise linear infinite;
 }
 
-/* Definindo múltiplas partículas */
-.particle:nth-child(1) {
-    width: 2px;
-    height: 2px;
-    top: 10%;
-    left: 20%;
-    animation-duration: 12s;
-}
-.particle:nth-child(2) {
-    width: 3px;
-    height: 3px;
-    top: 40%;
-    left: 70%;
-    animation-duration: 8s;
-}
-.particle:nth-child(3) {
-    width: 2px;
-    height: 2px;
-    top: 60%;
-    left: 30%;
-    animation-duration: 10s;
-}
-.particle:nth-child(4) {
-    width: 4px;
-    height: 4px;
-    top: 80%;
-    left: 80%;
-    animation-duration: 14s;
-}
-.particle:nth-child(5) {
-    width: 3px;
-    height: 3px;
-    top: 50%;
-    left: 50%;
-    animation-duration: 9s;
+/* Fagulhas alongadas */
+.spark.long {
+    border-radius: 50%%;
+    width: 1px !important;
+    height: 8px !important;
+    transform: rotate(10deg);
+    background: rgba(255, 255, 255, 0.6);
+    filter: blur(0.8px);
 }
 
-/* Movimento das partículas (subindo) */
-@keyframes move {
-    0% {
-        transform: translateY(0) scale(1);
+%s
+
+@keyframes rise {
+    0%% {
+        transform: translateY(0) translateX(0) scale(1);
         opacity: 1;
     }
-    100% {
-        transform: translateY(-100vh) scale(0.5);
+    50%% {
+        opacity: 1;
+    }
+    100%% {
+        transform: translateY(-120vh) translateX(var(--horizontal-shift)) scale(0.5);
         opacity: 0;
     }
 }
 
-/* Caixa de conteúdo com efeito vidro */
 .css-18e3th9 {
     background-color: rgba(255, 255, 255, 0.05) !important;
     padding: 2rem;
@@ -73,30 +54,62 @@ body {
     backdrop-filter: blur(8px);
 }
 </style>
-
-<!-- Criando as partículas -->
-<div class="particle"></div>
-<div class="particle"></div>
-<div class="particle"></div>
-<div class="particle"></div>
-<div class="particle"></div>
 """
 
-st.markdown(css, unsafe_allow_html=True)
+# Função que gera fagulhas
+def gerar_fagulhas(qtd=60):
+    fagulhas = ""
+    for i in range(qtd):
+        left = random.randint(0, 100)  # posição na base
+        size = random.uniform(2, 4)    # tamanho base
+        duration = random.uniform(4, 8)  # duração da subida
+        delay = random.uniform(0, 8)    # atraso inicial
+        shift = random.randint(-50, 50) # deslocamento lateral
+
+        # Decide se é uma fagulha normal ou alongada (30% chance)
+        long_class = "long" if random.random() < 0.3 else ""
+
+        fagulhas += f"""
+        .spark:nth-child({i+1}) {{
+            left: {left}%;
+            width: {size}px;
+            height: {size}px;
+            --horizontal-shift: {shift}px;
+            animation-duration: {duration}s;
+            animation-delay: {delay}s;
+        }}
+        .spark.long:nth-child({i+1}) {{
+            left: {left}%;
+            --horizontal-shift: {shift}px;
+            animation-duration: {duration}s;
+            animation-delay: {delay}s;
+        }}
+        """
+    return fagulhas
+
+# Inserindo CSS dinâmico
+st.markdown(css % gerar_fagulhas(70), unsafe_allow_html=True)
+
+# Criando divs das fagulhas
+spark_divs = "".join([
+    f"<div class='spark {'long' if random.random() < 0.3 else ''}'></div>"
+    for _ in range(70)
+])
+st.markdown(spark_divs, unsafe_allow_html=True)
 
 # Conteúdo do app
 st.markdown(
-    "<h1 style='text-align: center; color: white;'>✨ App com Fagulhas Claras</h1>",
+    "<h1 style='text-align: center; color: white;'>🔥 Fagulhas Realistas</h1>",
     unsafe_allow_html=True,
 )
+
 st.markdown(
-    "<p style='text-align: center; color: white;'>Background escuro com partículas brancas animadas.</p>",
+    "<p style='text-align: center; color: white;'>Simulando fagulhas subindo de um braseiro, com movimento e blur suave.</p>",
     unsafe_allow_html=True,
 )
 
-st.write("💡 Adicione aqui os elementos do seu app normalmente.")
+st.write("💡 Insira seus inputs, gráficos e interações aqui.")
 
-# Exemplo de interação
 nome = st.text_input("Digite seu nome:")
 if nome:
-    st.success(f"Olá, {nome}! 🚀")
+    st.success(f"Olá, {nome}! 🔥✨")
