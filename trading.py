@@ -1,121 +1,148 @@
 import streamlit as st
-import numpy as np
-import matplotlib.pyplot as plt
-import time
+import random
 
 st.set_page_config(page_title="Fagulhas Realistas + Som", layout="wide")
 
-# Número de fagulhas
-NUM_PARTICLES = 80
+# CSS principal com animação das fagulhas
+css = """
+<style>
+html, body {
+  margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden;
+  background: radial-gradient(circle at center bottom, #2a1000, #000);
+}
 
-# Inicialização das partículas
-x = np.random.uniform(0, 1, NUM_PARTICLES)
-y = np.random.uniform(0, 0.05, NUM_PARTICLES)
-size = np.random.uniform(50, 100, NUM_PARTICLES)
-alpha = np.ones(NUM_PARTICLES)
-vx = np.random.uniform(-0.002, 0.002, NUM_PARTICLES)  # oscilação horizontal
-vy = np.random.uniform(0.004, 0.01, NUM_PARTICLES)    # velocidade vertical
+.spark {
+  position: fixed;
+  bottom: 0;
+  border-radius: 50%;
+  filter: drop-shadow(0 0 6px);
+  animation-name: rise, flicker, sway;
+  animation-timing-function: linear, ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite, infinite;
+  opacity: 0;
+  will-change: transform, opacity, background-color;
+}
 
-# Som ambiente do braseiro
-audio_html = """
-<audio autoplay loop controls style="width:100%;">
+/* Subida + diminuição de tamanho */
+@keyframes rise {
+  0% {
+    transform: translateY(0) translateX(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-110vh) translateX(var(--hshift)) scale(0.2);
+    opacity: 0;
+  }
+}
+
+/* Piscar do brilho */
+@keyframes flicker {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* Oscilação lateral caótica */
+@keyframes sway {
+  0% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(var(--hshift));
+  }
+  50% {
+    transform: translateX(0);
+  }
+  75% {
+    transform: translateX(calc(var(--hshift) * -1));
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+</style>
+"""
+
+# Gerar as regras CSS para cada fagulha individualmente
+def gerar_fagulhas(n=80):
+    estilos = ""
+    for i in range(n):
+        left = random.uniform(0, 100)
+        size = random.uniform(8, 20)  # tamanho base no início
+        dur_rise = random.uniform(4, 8)
+        dur_flicker = random.uniform(1, 3)
+        dur_sway = random.uniform(3, 7)
+        delay = random.uniform(0, 8)
+        hshift = random.uniform(-20, 20)  # deslocamento horizontal máximo para sway
+
+        # Cor do branco ao vermelho (valores intermediários para cores quentes)
+        # Vamos criar um gradiente de cor aleatória entre branco e vermelho
+        # usando hsl para mais naturalidade:
+        # branca: hsl(30, 100%, 90%)
+        # vermelha: hsl(10, 100%, 50%)
+        # valor interpolado para cada fagulha
+
+        cor_interpolada = interpolate_hsl_color(30, 90, 10, 50, random.random())
+
+        estilos += f"""
+        .spark:nth-child({i+1}) {{
+            left: {left}%;
+            width: {size}px;
+            height: {size}px;
+            --hshift: {hshift}px;
+            animation-duration: {dur_rise}s, {dur_flicker}s, {dur_sway}s;
+            animation-delay: {delay}s, {delay}s, {delay}s;
+            background: radial-gradient(circle, {cor_interpolada} 0%, transparent 70%);
+            filter: drop-shadow(0 0 4px {cor_interpolada});
+        }}
+        """
+    return estilos
+
+def interpolate_hsl_color(h1, l1, h2, l2, t):
+    # h: hue em graus (0-360)
+    # l: lightness em %
+    # t: interpolação 0 a 1
+    h = h1 + (h2 - h1) * t
+    l = l1 + (l2 - l1) * t
+    return f"hsl({h:.1f}, 100%, {l:.1f}%)"
+
+# Gerar o HTML + CSS + fagulhas + áudio
+html = f"""
+{css}
+<style>
+{gerar_fagulhas(80)}
+</style>
+
+<div>
+  {"".join(["<div class='spark'></div>" for _ in range(80)])}
+</div>
+
+<audio autoplay loop style="position: fixed; bottom: 15px; left: 15px; z-index: 9999;">
   <source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_ef3fcd5aab.mp3?filename=fireplace-crackling-11268.mp3" type="audio/mp3">
   Seu navegador não suporta áudio.
 </audio>
 """
 
-st.markdown(audio_html, unsafe_allow_html=True)
+# Mostrar no Streamlit
+st.markdown(html, unsafe_allow_html=True)
 
-# Criar figura matplotlib full screen (streamlit limita um pouco, mas deixamos grande)
-fig, ax = plt.subplots(figsize=(12, 8))
-fig.patch.set_facecolor('black')
-ax.set_facecolor('black')
-ax.axis('off')
-
-placeholder = st.empty()
-
-st.markdown("<h2 style='color: orange; text-align: center;'>🔥 Fagulhas Realistas com Som de Braseiro 🔥</h2>", unsafe_allow_html=True)
-
-# Loop da animação
-for _ in range(1000):
-    ax.clear()
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis('off')
-
-    # Atualiza posição das partículas
-    x += vx
-    y += vy
-
-    # Diminui tamanho e opacidade com a altura para simular afastamento
-    size = np.interp(y, [0, 1], [100, 10])
-    alpha = np.interp(y, [0, 1], [1, 0])
-
-    # Oscilação lateral caótica
-    vx += np.random.uniform(-0.0005, 0.0005, NUM_PARTICLES)
-    vx = np.clip(vx, -0.004, 0.004)
-
-    # Reiniciar partículas que saíram da tela
-    fora = y > 1
-    y[fora] = 0
-    x[fora] = np.random.uniform(0, 1, fora.sum())
-    vx[fora] = np.random.uniform(-0.002, 0.002, fora.sum())
-    vy[fora] = np.random.uniform(0.004, 0.01, fora.sum())
-    size[fora] = np.random.uniform(50, 100, fora.sum())
-    alpha[fora] = 1
-
-    # Desenhar partículas com cores entre amarelo e laranja, para mais realismo
-    for i in range(NUM_PARTICLES):
-        color = (1.0, np.random.uniform(0.4, 0.7), 0)  # rgb amarelo-laranja variável
-        ax.scatter(x[i], y[i], s=size[i], c=[color], alpha=alpha[i], edgecolors='none')
-
-    placeholder.pyplot(fig)
-    time.sleep(0.03)
-import streamlit as st
-import streamlit.components.v1 as components
-
-st.set_page_config(page_title="Background Vídeo Fullscreen", layout="wide")
-
-video_url = "https://media.istockphoto.com/id/956854910/pt/v%C3%ADdeo/flying-glowing-fire-sparks-with-an-black-background.mp4?s=mp4-640x640-is&k=20&c=gZcBFbSQPpXe1M8jJQYjokYW0zE-uIrFrgGhb52b6hI="
-
-html_code = f"""
-<style>
-  /* Vídeo full screen, fixo no fundo */
-  #bg-video {{
-    position: fixed;
-    top: 0; left: 0;
-    width: 100vw;
-    height: 100vh;
-    object-fit: cover;
-    z-index: -1;
-    pointer-events: none; /* deixa clicar através do vídeo */
-  }}
-
-  /* Conteúdo do Streamlit com fundo transparente */
-  .stApp {{
-    background: transparent !important;
-  }}
-
-  /* Opcional: para texto ficar legível */
-  .content {{
-    position: relative;
-    z-index: 1;
-    color: white;
-    padding: 2rem;
-    text-align: center;
-    text-shadow: 0 0 8px rgba(0,0,0,0.9);
-  }}
-</style>
-
-<video autoplay muted loop playsinline id="bg-video">
-  <source src="{video_url}" type="video/mp4" />
-  Seu navegador não suporta vídeo.
-</video>
-
-<div class="content">
-  <h1>🔥 Fagulhas Realistas Fullscreen</h1>
-  <p>Vídeo de fagulhas animadas como background, adaptável a qualquer tela.</p>
+# Texto centralizado para título
+st.markdown("""
+<div style='
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #ff4500;
+  font-size: 3rem;
+  font-weight: 900;
+  text-shadow: 0 0 15px #ff4500;
+  user-select: none;
+  pointer-events: none;
+'>
+🔥 Fagulhas Realistas + Som Ambiente 🔥
 </div>
-"""
-
-components.html(html_code, height=600, scrolling=False)
+""", unsafe_allow_html=True)
