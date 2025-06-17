@@ -558,19 +558,23 @@ else:
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
         # MÉTRICAS SEM CONTAINERS - UMA AO LADO DA OUTRA
-        # Primeira linha
+        # Teste com texto simples
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("💰 Total", f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
+            st.write("**💰 Total**")
+            st.write(f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
         with col2:
-            st.metric("📈 Média", f"R$ {media_resultado:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
+            st.write("**📈 Média**")
+            st.write(f"R$ {media_resultado:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
         
-        # Segunda linha
         col3, col4 = st.columns(2)
         with col3:
-            st.metric("🎯 Trades", f"{total_trades}")
+            st.write("**🎯 Trades**")
+            st.write(f"{total_trades}")
         with col4:
-            st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
+            st.write("**✅ Acerto**")
+            st.write(f"{taxa_acerto:.0f}%")
+
         
 
         # GRÁFICOS EM COLUNAS
