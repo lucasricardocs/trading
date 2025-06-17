@@ -206,22 +206,6 @@ h2, h3 {{
     border-radius: 6px;
 }}
 
-/* CONTAINERS ESCUROS APENAS PARA GRÁFICOS */
-[data-testid="stVerticalBlockBorderWrapper"] {{
-    background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3a 100%) !important;
-    border: 1px solid #404040 !important;
-    border-radius: 12px !important;
-    padding: 1.5rem !important;
-    margin: 1rem 0 !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
-}}
-
-/* Gráficos dentro dos containers */
-[data-testid="stVerticalBlockBorderWrapper"] .vega-embed {{
-    background: transparent !important;
-    border: none !important;
-}}
-
 {gerar_fagulhas(100)}
 </style>
 """
