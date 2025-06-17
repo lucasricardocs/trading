@@ -5,20 +5,11 @@ import pandas as pd
 import altair as alt
 import numpy as np
 import time
-import threading
 import random
 from datetime import datetime, timedelta, date
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import SpreadsheetNotFound
 import warnings
-import locale
-
-# Configurar locale para formatação brasileira
-try:
-    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
-except locale.Error:
-    # Fallback para sistemas sem locale pt_BR
-    locale.setlocale(locale.LC_ALL, 'Portuguese_Brazil.1252')
 
 # Suprimir warnings
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*observed=False.*")
@@ -35,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 🎨 Cores para fagulhas - RESTAURADAS
+# 🎨 Cores para fagulhas
 cores = ['#ff4500', '#ff8c00', '#ffd700', '#ffffff']
 
 # 🎧 Som de braseiro
@@ -45,7 +36,7 @@ audio_html = """
 </audio>
 """
 
-# 🔥 Função para gerar CSS das fagulhas RESTAURADAS
+# 🔥 Função para gerar CSS das fagulhas
 def gerar_fagulhas(qtd=100):
     fagulhas = ""
     for i in range(qtd):
@@ -75,7 +66,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS Completo com Fagulhas Restauradas
+# CSS Completo com Fagulhas
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -258,7 +249,7 @@ h2, h3 {{
 </style>
 """
 
-# 🔥 Inserindo CSS, som e fagulhas RESTAURADAS
+# 🔥 Inserindo CSS, som e fagulhas
 st.markdown(css, unsafe_allow_html=True)
 st.markdown(audio_html, unsafe_allow_html=True)
 spark_divs = "".join([f"<div class='spark {'long' if random.random() < 0.2 else ''}'></div>" for _ in range(100)])
@@ -365,11 +356,28 @@ def calcular_largura_e_espacamento(num_elementos):
 def formatar_moeda(valor):
     """Formata valor monetário com símbolo R$ e separadores brasileiros"""
     try:
-        # Formatação usando locale
-        return locale.currency(valor, grouping=True, symbol=True)
+        # Formatação manual: R$ 1.234,56
+        valor_str = f"{valor:,.2f}"
+        
+        # Separa parte inteira e decimal
+        if '.' in valor_str:
+            parte_inteira, parte_decimal = valor_str.split('.')
+        else:
+            parte_inteira = valor_str
+            parte_decimal = "00"
+        
+        # Formata parte inteira com pontos
+        parte_inteira_formatada = ""
+        for i, char in enumerate(reversed(parte_inteira)):
+            if i > 0 and i % 3 == 0:
+                parte_inteira_formatada = '.' + parte_inteira_formatada
+            parte_inteira_formatada = char + parte_inteira_formatada
+        
+        # Retorna string formatada
+        return f"R$ {parte_inteira_formatada},{parte_decimal}"
     except:
-        # Fallback manual
-        return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        # Fallback para valores simples
+        return f"R$ {valor:.2f}"
 
 def create_heatmap_2d_github(df_heatmap_final):
     """Heatmap minimalista com dias fora do ano transparentes"""
@@ -538,15 +546,16 @@ with st.sidebar:
         resultado_input = st.text_input("Resultado", value="0,00")
         
         try:
-            resultado = float(resultado_input.replace(',', '.'))
+            # Substitui vírgula por ponto para conversão
+            resultado_valor = float(resultado_input.replace(',', '.'))
         except ValueError:
-            st.error("Valor inválido")
-            resultado = 0.0
+            st.error("Valor inválido. Use números com vírgula decimal.")
+            resultado_valor = 0.0
 
         submitted = st.form_submit_button("✅ Adicionar")
         
         if submitted:
-            if add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultado):
+            if add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultado_valor):
                 temp_success = st.empty()
                 temp_success.success("✅ Trade adicionado!")
                 st.cache_data.clear()
@@ -601,7 +610,7 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # --- NOVO BLOCO DE MÉTRICAS ---
+        # --- MÉTRICAS LADO A LADO ---
         st.markdown('<div class="metric-container">', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
