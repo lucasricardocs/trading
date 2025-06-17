@@ -27,8 +27,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 🎨 Cores para fagulhas
-cores = ['#ff4500', '#ff8c00', '#ffd700', '#ffffff']
+# 🎨 Cores para fagulhas - MAIS TRANSLÚCIDAS
+cores = ['rgba(255, 69, 0, 0.2)', 'rgba(255, 140, 0, 0.15)', 'rgba(255, 215, 0, 0.1)', 'rgba(255, 255, 255, 0.08)']
 
 # 🎧 Som de braseiro
 audio_html = """
@@ -37,18 +37,18 @@ audio_html = """
 </audio>
 """
 
-# 🔥 Função para gerar CSS das fagulhas
+# 🔥 Função para gerar CSS das fagulhas MAIS SUTIS
 def gerar_fagulhas(qtd=100):
     fagulhas = ""
     for i in range(qtd):
         left = random.randint(0, 100)
-        size = random.uniform(3, 6)
-        duration = random.uniform(5, 9)
-        delay = random.uniform(0, 8)
-        shift = random.randint(-100, 100)
-        rotation = random.randint(-180, 180)
-        scale = random.uniform(0.6, 1.5)
-        blur = max(0.5, (2.0 - scale))
+        size = random.uniform(2, 4)
+        duration = random.uniform(8, 12)
+        delay = random.uniform(0, 10)
+        shift = random.randint(-50, 50)
+        rotation = random.randint(-90, 90)
+        scale = random.uniform(0.3, 0.8)
+        blur = max(1.0, (3.0 - scale))
         cor = random.choice(cores)
 
         fagulhas += f"""
@@ -61,13 +61,13 @@ def gerar_fagulhas(qtd=100):
             --rotation: {rotation}deg;
             --scale: {scale};
             --blur: {blur}px;
-            animation-duration: {duration}s, {random.uniform(1,3)}s;
-            animation-delay: {delay}s, {random.uniform(0,2)}s;
+            animation-duration: {duration}s, {random.uniform(2,4)}s;
+            animation-delay: {delay}s, {random.uniform(0,3)}s;
         }}
         """
     return fagulhas
 
-# CSS Completo com Colunas na Cor da Sidebar
+# CSS Completo - MÉTRICAS SEM CONTAINERS
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -81,41 +81,41 @@ body {{
     bottom: 0;
     border-radius: 50%;
     opacity: 0;
-    mix-blend-mode: screen;
+    mix-blend-mode: soft-light;
     animation: rise linear infinite, flicker ease-in-out infinite;
     z-index: -1;
     pointer-events: none;
 }}
 
 .spark.long {{
-    width: 2px !important;
-    height: 10px !important;
-    background: linear-gradient(to top, rgba(255,255,255,0.7), rgba(255,255,255,0));
+    width: 1px !important;
+    height: 6px !important;
+    background: linear-gradient(to top, rgba(255,255,255,0.1), rgba(255,255,255,0));
     border-radius: 50%;
 }}
 
 @keyframes rise {{
     0% {{
         transform: translateY(0) translateX(0) scale(var(--scale)) rotate(0deg);
-        opacity: 1;
+        opacity: 0.3;
         filter: blur(var(--blur));
     }}
     30% {{
-        opacity: 1;
+        opacity: 0.2;
     }}
     100% {{
-        transform: translateY(-120vh) translateX(var(--horizontal-shift)) scale(calc(var(--scale) * 0.5)) rotate(var(--rotation));
+        transform: translateY(-120vh) translateX(var(--horizontal-shift)) scale(calc(var(--scale) * 0.3)) rotate(var(--rotation));
         opacity: 0;
-        filter: blur(calc(var(--blur) + 1px));
+        filter: blur(calc(var(--blur) + 2px));
     }}
 }}
 
 @keyframes flicker {{
     0%, 100% {{
-        opacity: 0.9;
+        opacity: 0.15;
     }}
     50% {{
-        opacity: 0.4;
+        opacity: 0.05;
     }}
 }}
 
@@ -160,13 +160,14 @@ h2, h3 {{
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
 }}
 
-/* Métricas */
+/* MÉTRICAS SEM CONTAINERS - ESTILO LIMPO */
 [data-testid="stMetric"] {{
-    background: rgba(26, 26, 26, 0.95) !important;
-    border: 1px solid #333;
-    border-radius: 8px;
-    padding: 1rem;
-    backdrop-filter: blur(15px);
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0.5rem 0 !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
 }}
 
 [data-testid="stMetricLabel"] > div {{
@@ -177,6 +178,7 @@ h2, h3 {{
 [data-testid="stMetricValue"] {{
     color: #e8eaed;
     font-weight: 500;
+    font-size: 1.5rem;
 }}
 
 /* Inputs */
@@ -217,14 +219,14 @@ h2, h3 {{
     border-radius: 6px;
 }}
 
-{gerar_fagulhas(100)}
+{gerar_fagulhas(80)}
 </style>
 """
 
 # 🔥 Inserindo CSS, som e fagulhas
 st.markdown(css, unsafe_allow_html=True)
 st.markdown(audio_html, unsafe_allow_html=True)
-spark_divs = "".join([f"<div class='spark {'long' if random.random() < 0.2 else ''}'></div>" for _ in range(100)])
+spark_divs = "".join([f"<div class='spark {'long' if random.random() < 0.1 else ''}'></div>" for _ in range(80)])
 st.markdown(spark_divs, unsafe_allow_html=True)
 
 # --- Funções ---
@@ -326,7 +328,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap minimalista com dias fora do ano transparentes"""
+    """Heatmap minimalista com dias fora do ano transparentes"""[4]
     if df_heatmap_final.empty:
         return None
     
@@ -362,9 +364,9 @@ def create_heatmap_2d_github(df_heatmap_final):
     
     def get_stroke_width(row):
         if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
-            return 0  # SEM BORDA para dias fora do ano
+            return 0
         else:
-            return 2  # COM BORDA para dias do ano atual
+            return 2
     
     def get_color_category(row):
         if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
@@ -532,7 +534,7 @@ with st.sidebar:
         }).round(0)
         resumo_ativo.columns = ['Trades', 'Total', 'Média']
         resumo_ativo = resumo_ativo.reset_index()
-        st.dataframe(resumo_ativo, use_container_width=False, hide_index=True)
+        st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
 
 # --- Corpo Principal ---
 if df.empty:
@@ -555,7 +557,7 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # Métricas
+        # MÉTRICAS SEM CONTAINERS - UM AO LADO DO OUTRO
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("💰 Total", f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
@@ -566,7 +568,7 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # GRÁFICOS EM COLUNAS COM COR DA SIDEBAR
+        # GRÁFICOS EM COLUNAS
         st.markdown("### 🔥 Atividade Anual")
         col_heatmap = st.columns(1)[0]
         with col_heatmap:
@@ -597,9 +599,9 @@ else:
                 evolution_chart = create_evolution_chart_with_gradient(df_area)
                 st.altair_chart(evolution_chart, use_container_width=True)
 
-        # LAYOUT HORIZONTAL: Gráfico de Barras e Radial LADO A LADO
+        # LAYOUT: HISTOGRAMA (2/3) + RADIAL (1/3)
         st.markdown("### 🎯 Resultados por Trade")
-        col_trades, col_radial = st.columns([3, 1])  # Proporção 3:1 para melhor distribuição
+        col_trades, col_radial = st.columns([2, 1])  # PROPORÇÃO 2:1 = RADIAL OCUPA 1/3
         
         with col_trades:
             if not df_filtrado.empty:
@@ -641,11 +643,6 @@ else:
             radial_chart = create_radial_chart(trades_ganhadores, trades_perdedores)
             if radial_chart:
                 st.altair_chart(radial_chart, use_container_width=True)
-            
-            # Adicionar métricas complementares no espaço restante
-            st.markdown("---")
-            st.metric("🟢 Ganhos", f"{trades_ganhadores}")
-            st.metric("🔴 Perdas", f"{trades_perdedores}")
 
 # Rodapé
 st.markdown("""
