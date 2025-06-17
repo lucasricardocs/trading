@@ -3,16 +3,7 @@ import random
 
 st.set_page_config(page_title="Fagulhas Realistas + Som", layout="wide")
 
-# Função para interpolar cor HSL entre branco quente e vermelho
-def interpolate_hsl_color(h1, l1, h2, l2, t):
-    # h: hue em graus (0-360)
-    # l: lightness em %
-    # t: interpolação 0 a 1
-    h = h1 + (h2 - h1) * t
-    l = l1 + (l2 - l1) * t
-    return f"hsl({h:.1f}, 100%, {l:.1f}%)"
-
-# CSS base + animações
+# CSS base + animação das fagulhas com escala, opacidade e brilho relacionados à profundidade
 css = """
 <style>
 html, body {
@@ -27,46 +18,66 @@ html, body {
   filter: drop-shadow(0 0 6px);
   animation-name: rise_sway, flicker;
   animation-timing-function: linear, ease-in-out;
-  animation-iteration-count: infinite;
+  animation-iteration-count: infinite, infinite;
   opacity: 0;
-  will-change: transform, opacity, background-color;
+  will-change: transform, opacity, background-color, filter;
+  pointer-events: none;
 }
 
+/* Animação com subida, movimento lateral caótico, escala e opacidade que simulam profundidade */
 @keyframes rise_sway {
   0% {
     transform: translateY(0) translateX(0) scale(1);
     opacity: 1;
+    filter: drop-shadow(0 0 8px var(--color));
   }
-  25% {
-    transform: translateY(-27.5vh) translateX(var(--hshift)) scale(0.85);
-    opacity: 0.8;
+  20% {
+    transform: translateY(-22vh) translateX(calc(var(--hshift) * 0.8)) scale(0.85);
+    opacity: 0.85;
+    filter: drop-shadow(0 0 6.8px var(--color));
   }
-  50% {
-    transform: translateY(-55vh) translateX(0) scale(0.6);
-    opacity: 0.5;
+  40% {
+    transform: translateY(-44vh) translateX(calc(var(--hshift) * -0.7)) scale(0.65);
+    opacity: 0.6;
+    filter: drop-shadow(0 0 5px var(--color));
   }
-  75% {
-    transform: translateY(-82.5vh) translateX(calc(var(--hshift) * -1)) scale(0.4);
-    opacity: 0.3;
+  60% {
+    transform: translateY(-66vh) translateX(calc(var(--hshift) * 0.6)) scale(0.4);
+    opacity: 0.4;
+    filter: drop-shadow(0 0 3px var(--color));
+  }
+  80% {
+    transform: translateY(-88vh) translateX(calc(var(--hshift) * -0.5)) scale(0.25);
+    opacity: 0.25;
+    filter: drop-shadow(0 0 2px var(--color));
   }
   100% {
-    transform: translateY(-110vh) translateX(0) scale(0.2);
+    transform: translateY(-110vh) translateX(0) scale(0.1);
     opacity: 0;
+    filter: drop-shadow(0 0 1px var(--color));
   }
 }
 
+/* Piscar de brilho */
 @keyframes flicker {
   0%, 100% {
     opacity: 0.8;
   }
   50% {
-    opacity: 0.3;
+    opacity: 0.4;
   }
 }
+
 </style>
 """
 
-# Gera CSS dinâmico para cada fagulha individual com cores, tamanhos e tempos variados
+# Função que gera cor interpolada em HSL do branco quente ao vermelho de brasa
+def interpolate_hsl_color(h1, l1, h2, l2, t):
+    h = h1 + (h2 - h1) * t
+    l = l1 + (l2 - l1) * t
+    return f"hsl({h:.1f}, 100%, {l:.1f}%)"
+
+# Gerar regras CSS para as fagulhas individualmente
 def gerar_fagulhas(n=80):
     estilos = ""
     for i in range(n):
@@ -75,29 +86,27 @@ def gerar_fagulhas(n=80):
         dur_rise = random.uniform(4, 8)
         dur_flicker = random.uniform(1, 3)
         delay = random.uniform(0, 8)
-        hshift = random.uniform(-20, 20)  # deslocamento horizontal máximo para sway
-
-        # Cor do branco quente ao vermelho de brasa usando HSL (mais natural)
-        cor_interpolada = interpolate_hsl_color(30, 90, 10, 50, random.random())
-
+        hshift = random.uniform(-40, 40)  # movimento lateral maior
+        
+        # Interpolação cor: de branco quente (H:30 L:90) para vermelho (H:10 L:50)
+        cor = interpolate_hsl_color(30, 90, 10, 50, random.random())
+        
         estilos += f"""
         .spark:nth-child({i+1}) {{
-            left: {left:.2f}%;
-            width: {size:.2f}px;
-            height: {size:.2f}px;
-            --hshift: {hshift:.2f}px;
-            --dur-rise: {dur_rise:.2f}s;
-            --dur-flicker: {dur_flicker:.2f}s;
-            --delay: {delay:.2f}s;
-            animation-duration: var(--dur-rise), var(--dur-flicker);
-            animation-delay: var(--delay), var(--delay);
-            background: radial-gradient(circle, {cor_interpolada} 0%, transparent 70%);
-            filter: drop-shadow(0 0 4px {cor_interpolada});
+            left: {left}%;
+            width: {size}px;
+            height: {size}px;
+            --hshift: {hshift}px;
+            --color: {cor};
+            animation-duration: {dur_rise}s, {dur_flicker}s;
+            animation-delay: {delay}s, {delay}s;
+            background: radial-gradient(circle, var(--color) 0%, transparent 70%);
+            filter: drop-shadow(0 0 6px var(--color));
         }}
         """
     return estilos
 
-# HTML completo com CSS, fagulhas e som ambiente
+# Montar HTML + CSS + fagulhas + áudio ambiente
 html = f"""
 {css}
 <style>
@@ -114,10 +123,9 @@ html = f"""
 </audio>
 """
 
-# Exibir no Streamlit
 st.markdown(html, unsafe_allow_html=True)
 
-# Texto fixo centralizado e estilizado
+# Texto centralizado para título
 st.markdown("""
 <div style='
   position: fixed;
