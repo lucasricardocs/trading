@@ -3,7 +3,7 @@ import random
 
 st.set_page_config(page_title="Fagulhas Realistas", layout="wide")
 
-# CSS com partículas aprimoradas
+# CSS com aprimoramentos
 css = """
 <style>
 body {
@@ -14,39 +14,49 @@ body {
 .spark {
     position: fixed;
     bottom: 0;
-    background: rgba(255, 255, 255, 0.8);
+    background: radial-gradient(circle, rgba(255,255,255,1) 0%%, rgba(255,255,255,0) 70%%);
     border-radius: 50%%;
     opacity: 0;
     filter: blur(1px);
-    animation: rise linear infinite;
+    animation: rise linear infinite, flicker ease-in-out infinite;
+    mix-blend-mode: screen;
 }
 
 /* Fagulhas alongadas */
 .spark.long {
+    width: 2px !important;
+    height: 10px !important;
+    background: linear-gradient(to top, rgba(255,255,255,0.7), rgba(255,255,255,0));
     border-radius: 50%%;
-    width: 1px !important;
-    height: 8px !important;
-    transform: rotate(10deg);
-    background: rgba(255, 255, 255, 0.6);
     filter: blur(0.8px);
 }
 
-%s
-
+/* Animação de subida */
 @keyframes rise {
     0%% {
-        transform: translateY(0) translateX(0) scale(1);
+        transform: translateY(0) translateX(0) scale(1) rotate(0deg);
         opacity: 1;
     }
-    50%% {
+    30%% {
         opacity: 1;
     }
     100%% {
-        transform: translateY(-120vh) translateX(var(--horizontal-shift)) scale(0.5);
+        transform: translateY(-120vh) translateX(var(--horizontal-shift)) scale(0.5) rotate(var(--rotation));
         opacity: 0;
     }
 }
 
+/* Efeito de brilho intermitente */
+@keyframes flicker {
+    0%%, 100%% {
+        opacity: 0.8;
+    }
+    50%% {
+        opacity: 0.3;
+    }
+}
+
+/* Conteúdo */
 .css-18e3th9 {
     background-color: rgba(255, 255, 255, 0.05) !important;
     padding: 2rem;
@@ -56,17 +66,17 @@ body {
 </style>
 """
 
-# Função que gera fagulhas
-def gerar_fagulhas(qtd=60):
+# Função para gerar CSS das fagulhas
+def gerar_fagulhas(qtd=70):
     fagulhas = ""
     for i in range(qtd):
-        left = random.randint(0, 100)  # posição na base
-        size = random.uniform(2, 4)    # tamanho base
-        duration = random.uniform(4, 8)  # duração da subida
-        delay = random.uniform(0, 8)    # atraso inicial
-        shift = random.randint(-50, 50) # deslocamento lateral
+        left = random.randint(0, 100)
+        size = random.uniform(2, 4)
+        duration = random.uniform(5, 9)
+        delay = random.uniform(0, 8)
+        shift = random.randint(-60, 60)
+        rotation = random.randint(-20, 20)
 
-        # Decide se é uma fagulha normal ou alongada (30% chance)
         long_class = "long" if random.random() < 0.3 else ""
 
         fagulhas += f"""
@@ -75,41 +85,43 @@ def gerar_fagulhas(qtd=60):
             width: {size}px;
             height: {size}px;
             --horizontal-shift: {shift}px;
-            animation-duration: {duration}s;
-            animation-delay: {delay}s;
+            --rotation: {rotation}deg;
+            animation-duration: {duration}s, {random.uniform(1,3)}s;
+            animation-delay: {delay}s, {random.uniform(0,2)}s;
         }}
         .spark.long:nth-child({i+1}) {{
             left: {left}%;
             --horizontal-shift: {shift}px;
-            animation-duration: {duration}s;
-            animation-delay: {delay}s;
+            --rotation: {rotation}deg;
+            animation-duration: {duration}s, {random.uniform(1,3)}s;
+            animation-delay: {delay}s, {random.uniform(0,2)}s;
         }}
         """
     return fagulhas
 
 # Inserindo CSS dinâmico
-st.markdown(css % gerar_fagulhas(70), unsafe_allow_html=True)
+st.markdown(css % gerar_fagulhas(80), unsafe_allow_html=True)
 
-# Criando divs das fagulhas
+# Divs das fagulhas
 spark_divs = "".join([
     f"<div class='spark {'long' if random.random() < 0.3 else ''}'></div>"
-    for _ in range(70)
+    for _ in range(80)
 ])
 st.markdown(spark_divs, unsafe_allow_html=True)
 
 # Conteúdo do app
 st.markdown(
-    "<h1 style='text-align: center; color: white;'>🔥 Fagulhas Realistas</h1>",
+    "<h1 style='text-align: center; color: white;'>🔥 Fagulhas Ultra Realistas</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
-    "<p style='text-align: center; color: white;'>Simulando fagulhas subindo de um braseiro, com movimento e blur suave.</p>",
+    "<p style='text-align: center; color: white;'>Movimento suave, glow, blur, zigue-zague e brilho intermitente, simulando um braseiro perfeito.</p>",
     unsafe_allow_html=True,
 )
 
-st.write("💡 Insira seus inputs, gráficos e interações aqui.")
+st.write("💡 Seus inputs, gráficos e funcionalidades podem ser adicionados normalmente.")
 
 nome = st.text_input("Digite seu nome:")
 if nome:
-    st.success(f"Olá, {nome}! 🔥✨")
+    st.success(f"Seja bem-vindo, {nome}! 🔥✨")
