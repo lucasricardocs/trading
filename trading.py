@@ -27,8 +27,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 🎨 Cores para fagulhas
-cores = ['#ff4500', '#ff8c00', '#ffd700', '#ffffff']
+# 🎨 Cores para fagulhas - MAIS TRANSLÚCIDAS
+cores = ['rgba(255, 69, 0, 0.2)', 'rgba(255, 140, 0, 0.15)', 'rgba(255, 215, 0, 0.1)', 'rgba(255, 255, 255, 0.08)']
 
 # 🎧 Som de braseiro
 audio_html = """
@@ -37,18 +37,18 @@ audio_html = """
 </audio>
 """
 
-# 🔥 Função para gerar CSS das fagulhas
+# 🔥 Função para gerar CSS das fagulhas MAIS SUTIS
 def gerar_fagulhas(qtd=100):
     fagulhas = ""
     for i in range(qtd):
         left = random.randint(0, 100)
-        size = random.uniform(3, 6)
-        duration = random.uniform(5, 9)
-        delay = random.uniform(0, 8)
-        shift = random.randint(-100, 100)
-        rotation = random.randint(-180, 180)
-        scale = random.uniform(0.6, 1.5)
-        blur = max(0.5, (2.0 - scale))
+        size = random.uniform(2, 4)  # Tamanho menor
+        duration = random.uniform(8, 12)  # Movimento mais lento
+        delay = random.uniform(0, 10)
+        shift = random.randint(-50, 50)  # Movimento horizontal menor
+        rotation = random.randint(-90, 90)  # Rotação menor
+        scale = random.uniform(0.3, 0.8)  # Escala menor
+        blur = max(1.0, (3.0 - scale))  # Mais blur
         cor = random.choice(cores)
 
         fagulhas += f"""
@@ -61,13 +61,13 @@ def gerar_fagulhas(qtd=100):
             --rotation: {rotation}deg;
             --scale: {scale};
             --blur: {blur}px;
-            animation-duration: {duration}s, {random.uniform(1,3)}s;
-            animation-delay: {delay}s, {random.uniform(0,2)}s;
+            animation-duration: {duration}s, {random.uniform(2,4)}s;
+            animation-delay: {delay}s, {random.uniform(0,3)}s;
         }}
         """
     return fagulhas
 
-# CSS Completo com Colunas na Cor da Sidebar
+# CSS Completo com Fagulhas Mais Sutis
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -81,41 +81,41 @@ body {{
     bottom: 0;
     border-radius: 50%;
     opacity: 0;
-    mix-blend-mode: screen;
+    mix-blend-mode: soft-light;  /* Modo de mistura mais suave */
     animation: rise linear infinite, flicker ease-in-out infinite;
     z-index: -1;
     pointer-events: none;
 }}
 
 .spark.long {{
-    width: 2px !important;
-    height: 10px !important;
-    background: linear-gradient(to top, rgba(255,255,255,0.7), rgba(255,255,255,0));
+    width: 1px !important;  /* Mais finas */
+    height: 6px !important;  /* Mais baixas */
+    background: linear-gradient(to top, rgba(255,255,255,0.1), rgba(255,255,255,0));
     border-radius: 50%;
 }}
 
 @keyframes rise {{
     0% {{
         transform: translateY(0) translateX(0) scale(var(--scale)) rotate(0deg);
-        opacity: 1;
+        opacity: 0.3;  /* Opacidade inicial menor */
         filter: blur(var(--blur));
     }}
     30% {{
-        opacity: 1;
+        opacity: 0.2;  /* Opacidade máxima menor */
     }}
     100% {{
-        transform: translateY(-120vh) translateX(var(--horizontal-shift)) scale(calc(var(--scale) * 0.5)) rotate(var(--rotation));
+        transform: translateY(-120vh) translateX(var(--horizontal-shift)) scale(calc(var(--scale) * 0.3)) rotate(var(--rotation));
         opacity: 0;
-        filter: blur(calc(var(--blur) + 1px));
+        filter: blur(calc(var(--blur) + 2px));
     }}
 }}
 
 @keyframes flicker {{
     0%, 100% {{
-        opacity: 0.9;
+        opacity: 0.15;  /* Opacidade de flicker menor */
     }}
     50% {{
-        opacity: 0.4;
+        opacity: 0.05;  /* Opacidade mínima muito baixa */
     }}
 }}
 
@@ -217,14 +217,14 @@ h2, h3 {{
     border-radius: 6px;
 }}
 
-{gerar_fagulhas(100)}
+{gerar_fagulhas(80)}  /* Menos fagulhas também */
 </style>
 """
 
 # 🔥 Inserindo CSS, som e fagulhas
 st.markdown(css, unsafe_allow_html=True)
 st.markdown(audio_html, unsafe_allow_html=True)
-spark_divs = "".join([f"<div class='spark {'long' if random.random() < 0.2 else ''}'></div>" for _ in range(100)])
+spark_divs = "".join([f"<div class='spark {'long' if random.random() < 0.1 else ''}'></div>" for _ in range(80)])  # Menos fagulhas longas
 st.markdown(spark_divs, unsafe_allow_html=True)
 
 # --- Funções ---
@@ -326,7 +326,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap minimalista com dias fora do ano transparentes"""
+    """Heatmap minimalista com dias fora do ano transparentes"""[1][2]
     if df_heatmap_final.empty:
         return None
     
@@ -566,7 +566,7 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # GRÁFICOS EM COLUNAS COM COR DA SIDEBAR
+        # GRÁFICOS EM COLUNAS
         st.markdown("### 🔥 Atividade Anual")
         col_heatmap = st.columns(1)[0]
         with col_heatmap:
