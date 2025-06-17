@@ -33,7 +33,7 @@ cores = ['#ff4500', '#ff8c00', '#ffd700', '#ffffff']
 # 🎧 Som de braseiro
 audio_html = """
 <audio autoplay loop volume="0.3">
-  <source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_ef3fcd5aab.mp3?filename=fireplace-crackling-11268.mp3" type="audio/mp3">
+  <source src="https://www.soundjay.com/nature/fire-1.mp3" type="audio/mp3">
 </audio>
 """
 
@@ -67,7 +67,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS com Containers Coloridos Seguindo o Padrão da Sidebar
+# CSS com Containers Agradáveis para Tema Escuro
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -142,7 +142,7 @@ h2, h3 {{
     margin: 1rem 0 0.5rem 0;
 }}
 
-/* Sidebar com cor padrão */
+/* Sidebar */
 .css-1d391kg {{
     background: rgba(17, 17, 17, 0.95) !important;
     border-right: 1px solid #333;
@@ -206,89 +206,18 @@ h2, h3 {{
     border-radius: 6px;
 }}
 
-/* CONTAINERS SEGUINDO O PADRÃO DA SIDEBAR */
-
-/* Container para heatmap - Verde */
-.heatmap-container {{
-    background: rgba(17, 17, 17, 0.95);
-    border: 1px solid #28a745;
-    border-radius: 12px;
-    padding: 2rem;
-    margin: 1.5rem 0;
-    backdrop-filter: blur(15px);
-    box-shadow: 0 4px 20px rgba(40, 167, 69, 0.3);
+/* CONTAINERS COM BORDER=TRUE - COR INTERNA AGRADÁVEL */
+[data-testid="stVerticalBlockBorderWrapper"] {{
+    background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3a 100%) !important;
+    border: 1px solid #404040 !important;
+    border-radius: 12px !important;
+    padding: 1.5rem !important;
+    margin: 1rem 0 !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
 }}
 
-.heatmap-container h3 {{
-    color: #28a745;
-    margin-top: 0;
-    margin-bottom: 1.5rem;
-    font-size: 1.3rem;
-    font-weight: 500;
-}}
-
-/* Container para evolução - Roxo */
-.evolution-container {{
-    background: rgba(17, 17, 17, 0.95);
-    border: 1px solid #8a2be2;
-    border-radius: 12px;
-    padding: 2rem;
-    margin: 1.5rem 0;
-    backdrop-filter: blur(15px);
-    box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
-}}
-
-.evolution-container h3 {{
-    color: #8a2be2;
-    margin-top: 0;
-    margin-bottom: 1.5rem;
-    font-size: 1.3rem;
-    font-weight: 500;
-}}
-
-/* Container para trades - Vermelho */
-.trades-container {{
-    background: rgba(17, 17, 17, 0.95);
-    border: 1px solid #dc3545;
-    border-radius: 12px;
-    padding: 2rem;
-    margin: 1.5rem 0;
-    backdrop-filter: blur(15px);
-    box-shadow: 0 4px 20px rgba(220, 53, 69, 0.3);
-}}
-
-.trades-container h3 {{
-    color: #dc3545;
-    margin-top: 0;
-    margin-bottom: 1.5rem;
-    font-size: 1.3rem;
-    font-weight: 500;
-}}
-
-/* Container para dados - Azul */
-.data-container {{
-    background: rgba(17, 17, 17, 0.95);
-    border: 1px solid #4fc3f7;
-    border-radius: 12px;
-    padding: 2rem;
-    margin: 1.5rem 0;
-    backdrop-filter: blur(15px);
-    box-shadow: 0 4px 20px rgba(79, 195, 247, 0.3);
-}}
-
-.data-container h3 {{
-    color: #4fc3f7;
-    margin-top: 0;
-    margin-bottom: 1.5rem;
-    font-size: 1.3rem;
-    font-weight: 500;
-}}
-
-/* Garantir que gráficos fiquem dentro dos containers */
-.heatmap-container .vega-embed,
-.evolution-container .vega-embed,
-.trades-container .vega-embed,
-.data-container .vega-embed {{
+/* Gráficos dentro dos containers */
+[data-testid="stVerticalBlockBorderWrapper"] .vega-embed {{
     background: transparent !important;
     border: none !important;
 }}
@@ -402,7 +331,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap com dias da semana completos e cores corretas"""
+    """Heatmap com stroke 2"""
     if df_heatmap_final.empty:
         return None
     
@@ -427,7 +356,7 @@ def create_heatmap_2d_github(df_heatmap_final):
     full_df['Data_dt'] = pd.to_datetime(full_df['Data'])
     full_df['day_of_week'] = full_df['Data_dt'].dt.weekday
     
-    # DIAS DA SEMANA COMPLETOS
+    # Dias da semana completos
     day_name_map = {0: 'Segunda', 1: 'Terça', 2: 'Quarta', 3: 'Quinta', 4: 'Sexta', 5: 'Sábado', 6: 'Domingo'}
     full_df['day_display_name'] = full_df['day_of_week'].map(day_name_map)
     day_display_names = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
@@ -436,7 +365,6 @@ def create_heatmap_2d_github(df_heatmap_final):
     full_df['month_name'] = full_df['Data_dt'].dt.strftime('%b')
     full_df['week_corrected'] = ((full_df['Data_dt'] - start_date).dt.days // 7)
     
-    # Criar coluna de categoria para cores
     def get_color_category(row):
         if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
             return 'fora_ano'
@@ -464,7 +392,7 @@ def create_heatmap_2d_github(df_heatmap_final):
 
     heatmap = alt.Chart(full_df).mark_rect(
         stroke='white',
-        strokeWidth=2,
+        strokeWidth=2,  # STROKE 2
         cornerRadius=2
     ).encode(
         x=alt.X('week_corrected:O', title=None, axis=None),
@@ -487,9 +415,9 @@ def create_heatmap_2d_github(df_heatmap_final):
         strokeWidth=0).configure(background='transparent')
 
 def create_evolution_chart_with_gradient(df_area):
-    """Gráfico de evolução com gradiente e stroke"""
+    """Gráfico de evolução com stroke 2"""
     area_chart = alt.Chart(df_area).mark_area(
-        line={'strokeWidth': 4, 'stroke': '#ffffff'},
+        line={'strokeWidth': 2, 'stroke': '#ffffff'},  # STROKE 2
         opacity=0.8,
         interpolate='monotone'
     ).encode(
@@ -510,40 +438,47 @@ def create_evolution_chart_with_gradient(df_area):
     return area_chart
 
 def create_radial_chart(trades_ganhadores, trades_perdedores):
-    """Cria gráfico radial (pizza) para trades"""
+    """Cria gráfico radial no estilo especificado"""
     if trades_ganhadores == 0 and trades_perdedores == 0:
         return None
-        
-    pizza_data = pd.DataFrame({
-        'Tipo': ['Ganhadores', 'Perdedores'],
-        'Quantidade': [trades_ganhadores, trades_perdedores]
+    
+    # Criar dados no formato especificado
+    source = pd.DataFrame({
+        "values": [trades_ganhadores, trades_perdedores],
+        "labels": ["Ganhadores", "Perdedores"]
     })
     
-    pizza_data = pizza_data[pizza_data['Quantidade'] > 0]
+    # Filtrar apenas valores > 0
+    source = source[source['values'] > 0]
     
-    pie_chart = alt.Chart(pizza_data).mark_arc(
-        innerRadius=50,
-        outerRadius=120,
-        stroke='white',
-        strokeWidth=3
-    ).encode(
-        theta=alt.Theta("Quantidade:Q", stack=True),
-        color=alt.Color("Tipo:N", 
+    if source.empty:
+        return None
+    
+    # Base chart conforme especificado
+    base = alt.Chart(source).encode(
+        alt.Theta("values:Q").stack(True),
+        alt.Radius("values").scale(type="sqrt", zero=True, rangeMin=20),
+        color=alt.Color("labels:N", 
                        scale=alt.Scale(domain=["Ganhadores", "Perdedores"], 
                                      range=["#28a745", "#dc3545"]),
-                       legend=alt.Legend(
-                           orient="bottom",
-                           titleColor="#e8eaed",
-                           labelColor="#e8eaed"
-                       )),
-        tooltip=["Tipo:N", "Quantidade:Q"]
-    ).properties(
+                       legend=None)
+    )
+    
+    # Arcos com stroke 2
+    c1 = base.mark_arc(innerRadius=20, stroke="#fff", strokeWidth=2)  # STROKE 2
+    
+    # Texto com valores
+    c2 = base.mark_text(radiusOffset=15, color='white', fontSize=12, fontWeight='bold').encode(
+        text="values:Q"
+    )
+    
+    chart = (c1 + c2).properties(
         width=250,
         height=250,
         background='transparent'
     )
     
-    return pie_chart
+    return chart
 
 # --- Interface ---
 st.title("🔥 Trading Analytics")
@@ -609,11 +544,10 @@ if df.empty:
     st.info("🔥 Adicione operações para começar")
 else:
     # Container para dados
-    st.markdown('<div class="data-container">', unsafe_allow_html=True)
-    st.markdown("### 📋 Dados das Operações")
-    with st.expander("Ver todas as operações"):
-        st.dataframe(df, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("### 📋 Dados das Operações")
+        with st.expander("Ver todas as operações"):
+            st.dataframe(df, use_container_width=True)
 
     if 'RESULTADO_LIQUIDO' in df_filtrado.columns and 'ABERTURA' in df_filtrado.columns:
         valor_total = df_filtrado['RESULTADO_LIQUIDO'].sum()
@@ -640,82 +574,83 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # Container Heatmap - Verde
-        st.markdown('<div class="heatmap-container">', unsafe_allow_html=True)
-        st.markdown("### 🔥 Atividade Anual")
-        df_heatmap = df.copy()
-        if not df_heatmap.empty and 'ABERTURA' in df_heatmap.columns:
-            df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
-            df_heatmap_grouped = df_heatmap.groupby('Data')['RESULTADO_LIQUIDO'].sum().reset_index()
-            
-            ano_atual = datetime.now().year
-            data_inicio = pd.Timestamp(f'{ano_atual}-01-01').date()
-            data_fim = pd.Timestamp(f'{ano_atual}-12-31').date()
-            
-            date_range = pd.date_range(start=data_inicio, end=data_fim, freq='D')
-            df_complete = pd.DataFrame({'Data': date_range.date})
-            df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
-            df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
-            
-            heatmap_2d_github = create_heatmap_2d_github(df_heatmap_final)
-            if heatmap_2d_github:
-                st.altair_chart(heatmap_2d_github, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Container Heatmap
+        with st.container(border=True):
+            st.markdown("### 🔥 Atividade Anual")
+            df_heatmap = df.copy()
+            if not df_heatmap.empty and 'ABERTURA' in df_heatmap.columns:
+                df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
+                df_heatmap_grouped = df_heatmap.groupby('Data')['RESULTADO_LIQUIDO'].sum().reset_index()
+                
+                ano_atual = datetime.now().year
+                data_inicio = pd.Timestamp(f'{ano_atual}-01-01').date()
+                data_fim = pd.Timestamp(f'{ano_atual}-12-31').date()
+                
+                date_range = pd.date_range(start=data_inicio, end=data_fim, freq='D')
+                df_complete = pd.DataFrame({'Data': date_range.date})
+                df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
+                df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
+                
+                heatmap_2d_github = create_heatmap_2d_github(df_heatmap_final)
+                if heatmap_2d_github:
+                    st.altair_chart(heatmap_2d_github, use_container_width=True)
         
-        # Container Evolução - Roxo
-        st.markdown('<div class="evolution-container">', unsafe_allow_html=True)
-        st.markdown("### 📊 Evolução Acumulada")
-        if not df_por_dia.empty:
-            df_area = df_por_dia.copy().sort_values('Data')
-            df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
-            evolution_chart = create_evolution_chart_with_gradient(df_area)
-            st.altair_chart(evolution_chart, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Container Evolução
+        with st.container(border=True):
+            st.markdown("### 📊 Evolução Acumulada")
+            if not df_por_dia.empty:
+                df_area = df_por_dia.copy().sort_values('Data')
+                df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
+                evolution_chart = create_evolution_chart_with_gradient(df_area)
+                st.altair_chart(evolution_chart, use_container_width=True)
 
-        # Container Trades - Vermelho
-        st.markdown('<div class="trades-container">', unsafe_allow_html=True)
-        st.markdown("### 🎯 Resultados por Trade")
-        
-        # Layout: 2/3 para trades, 1/3 para radial
-        col_trades, col_radial = st.columns([2, 1])
-        
-        with col_trades:
-            if not df_filtrado.empty:
-                df_trades = df_filtrado.copy()
-                df_trades = df_trades.sort_values('ABERTURA')
-                df_trades['Index'] = range(1, len(df_trades) + 1)
-                num_trades = len(df_trades)
-                config = calcular_largura_e_espacamento(num_trades)
-                
-                bars = alt.Chart(df_trades).mark_bar(size=config['size'], cornerRadius=1).encode(
-                    x=alt.X('Index:O', title='', axis=alt.Axis(grid=False, domain=False, ticks=False),
-                           scale=alt.Scale(paddingInner=config['padding'], paddingOuter=0.1)),
-                    y=alt.Y('RESULTADO_LIQUIDO:Q', title='', axis=alt.Axis(grid=True, gridOpacity=0.1)),
-                    color=alt.condition(alt.datum.RESULTADO_LIQUIDO > 0, alt.value('#28a745'), alt.value('#dc3545')),
-                    tooltip=[
-                        alt.Tooltip('Index:O', title='#'),
-                        alt.Tooltip('ABERTURA:T', title='Data', format='%d/%m'),
-                        alt.Tooltip('ATIVO:N', title='Ativo'),
-                        alt.Tooltip('RESULTADO_LIQUIDO:Q', format=',.0f', title='R$')
-                    ]
-                )
-                
-                linha_zero = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
-                    color='#666', strokeWidth=1, opacity=0.5
-                ).encode(y=alt.Y('zero:Q'))
-                
-                chart_final = (bars + linha_zero).properties(
-                    width='container', height=300, background='transparent'
-                )
-                st.altair_chart(chart_final, use_container_width=True)
-        
-        with col_radial:
-            st.markdown("#### Distribuição")
-            radial_chart = create_radial_chart(trades_ganhadores, trades_perdedores)
-            if radial_chart:
-                st.altair_chart(radial_chart, use_container_width=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Container Trades
+        with st.container(border=True):
+            st.markdown("### 🎯 Resultados por Trade")
+            
+            # Layout: 2/3 para trades, 1/3 para radial
+            col_trades, col_radial = st.columns([2, 1])
+            
+            with col_trades:
+                if not df_filtrado.empty:
+                    df_trades = df_filtrado.copy()
+                    df_trades = df_trades.sort_values('ABERTURA')
+                    df_trades['Index'] = range(1, len(df_trades) + 1)
+                    num_trades = len(df_trades)
+                    config = calcular_largura_e_espacamento(num_trades)
+                    
+                    bars = alt.Chart(df_trades).mark_bar(
+                        size=config['size'], 
+                        cornerRadius=1,
+                        stroke='white',
+                        strokeWidth=2  # STROKE 2
+                    ).encode(
+                        x=alt.X('Index:O', title='', axis=alt.Axis(grid=False, domain=False, ticks=False),
+                               scale=alt.Scale(paddingInner=config['padding'], paddingOuter=0.1)),
+                        y=alt.Y('RESULTADO_LIQUIDO:Q', title='', axis=alt.Axis(grid=True, gridOpacity=0.1)),
+                        color=alt.condition(alt.datum.RESULTADO_LIQUIDO > 0, alt.value('#28a745'), alt.value('#dc3545')),
+                        tooltip=[
+                            alt.Tooltip('Index:O', title='#'),
+                            alt.Tooltip('ABERTURA:T', title='Data', format='%d/%m'),
+                            alt.Tooltip('ATIVO:N', title='Ativo'),
+                            alt.Tooltip('RESULTADO_LIQUIDO:Q', format=',.0f', title='R$')
+                        ]
+                    )
+                    
+                    linha_zero = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
+                        color='#666', strokeWidth=2, opacity=0.5  # STROKE 2
+                    ).encode(y=alt.Y('zero:Q'))
+                    
+                    chart_final = (bars + linha_zero).properties(
+                        width='container', height=300, background='transparent'
+                    )
+                    st.altair_chart(chart_final, use_container_width=True)
+            
+            with col_radial:
+                st.markdown("#### Distribuição")
+                radial_chart = create_radial_chart(trades_ganhadores, trades_perdedores)
+                if radial_chart:
+                    st.altair_chart(radial_chart, use_container_width=True)
 
 # Rodapé
 st.markdown("""
