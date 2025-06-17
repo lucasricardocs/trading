@@ -279,7 +279,7 @@ def create_3d_heatmap(df_heatmap_final):
     y = np.array(dias_semana)
     z = np.zeros_like(x)
     
-    dx = dy = 0.5
+    dx = dy = 0.85
     dz = []
     
     max_abs_resultado = max(abs(min(resultados)), abs(max(resultados))) if resultados else 1
@@ -325,7 +325,7 @@ def create_3d_heatmap(df_heatmap_final):
     
     # Plotar barras
     bars = ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True, alpha=0.95, 
-                    edgecolor='#2a2a2a', linewidth=0.5)
+                    edgecolor='#2a2a2a', linewidth=0.1)
     
     # Configurar eixos SEM LABELS (design limpo)
     ax.set_xlabel('', fontsize=14, color='#e0e0e0', labelpad=15)
@@ -352,7 +352,7 @@ def create_3d_heatmap(df_heatmap_final):
     ax.set_zlim(0, max(dz) * 1.1 if len(dz) > 0 else 1)
     
     # Ângulo otimizado para formato panorâmico
-    ax.view_init(elev=12, azim=-20)
+    ax.view_init(elev=5, azim=-20)
     
     # Salvar com alta qualidade
     buffer = io.BytesIO()
