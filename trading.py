@@ -597,8 +597,9 @@ else:
                 evolution_chart = create_evolution_chart_with_gradient(df_area)
                 st.altair_chart(evolution_chart, use_container_width=True)
 
+        # LAYOUT HORIZONTAL: Gráfico de Barras e Radial LADO A LADO
         st.markdown("### 🎯 Resultados por Trade")
-        col_trades, col_radial = st.columns([2, 1])
+        col_trades, col_radial = st.columns([3, 1])  # Proporção 3:1 para melhor distribuição
         
         with col_trades:
             if not df_filtrado.empty:
@@ -640,6 +641,11 @@ else:
             radial_chart = create_radial_chart(trades_ganhadores, trades_perdedores)
             if radial_chart:
                 st.altair_chart(radial_chart, use_container_width=True)
+            
+            # Adicionar métricas complementares no espaço restante
+            st.markdown("---")
+            st.metric("🟢 Ganhos", f"{trades_ganhadores}")
+            st.metric("🔴 Perdas", f"{trades_perdedores}")
 
 # Rodapé
 st.markdown("""
