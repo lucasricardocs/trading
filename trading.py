@@ -231,17 +231,10 @@ def create_3d_heatmap(df_heatmap_final):
     plt.style.use('dark_background')
     
     # CORREÇÃO: Usar pd.to_datetime e a sintaxe correta do pandas
+    # Substituir as linhas problemáticas por:
     datas = pd.to_datetime(df_com_trades['Data'])
-    
-    # CORREÇÃO: Usar a sintaxe correta para isocalendar
-    try:
-        # Para pandas >= 1.1.0
-        semanas = datas.dt.isocalendar().week.values
-        dias_semana = datas.dt.weekday.values
-    except AttributeError:
-        # Fallback para versões mais antigas do pandas
-        semanas = datas.dt.week.values
-        dias_semana = datas.dt.weekday.values
+    semanas = datas.dt.isocalendar().week if hasattr(datas.dt, 'isocalendar') else datas.dt.week
+    dias_semana = datas.dt.weekday
     
     resultados = df_com_trades['RESULTADO_LIQUIDO'].values
     
