@@ -1,9 +1,9 @@
 import streamlit as st
 import random
 
-st.set_page_config(page_title="Fagulhas Realistas", layout="wide")
+st.set_page_config(page_title="Fagulhas Realistas com Som", layout="wide")
 
-# CSS com aprimoramentos
+# CSS para efeito visual
 css = """
 <style>
 body {
@@ -22,7 +22,6 @@ body {
     mix-blend-mode: screen;
 }
 
-/* Fagulhas alongadas */
 .spark.long {
     width: 2px !important;
     height: 10px !important;
@@ -31,7 +30,6 @@ body {
     filter: blur(0.8px);
 }
 
-/* Animação de subida */
 @keyframes rise {
     0%% {
         transform: translateY(0) translateX(0) scale(1) rotate(0deg);
@@ -46,7 +44,6 @@ body {
     }
 }
 
-/* Efeito de brilho intermitente */
 @keyframes flicker {
     0%%, 100%% {
         opacity: 0.8;
@@ -56,7 +53,6 @@ body {
     }
 }
 
-/* Conteúdo */
 .css-18e3th9 {
     background-color: rgba(255, 255, 255, 0.05) !important;
     padding: 2rem;
@@ -66,8 +62,16 @@ body {
 </style>
 """
 
-# Função para gerar CSS das fagulhas
-def gerar_fagulhas(qtd=70):
+# 🎵 Código HTML para som ambiente
+audio_html = """
+<audio autoplay loop>
+  <source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_ef3fcd5aab.mp3?filename=fireplace-crackling-11268.mp3" type="audio/mp3">
+Seu navegador não suporta áudio.
+</audio>
+"""
+
+# Função que gera CSS dinâmico para fagulhas
+def gerar_fagulhas(qtd=80):
     fagulhas = ""
     for i in range(qtd):
         left = random.randint(0, 100)
@@ -99,10 +103,11 @@ def gerar_fagulhas(qtd=70):
         """
     return fagulhas
 
-# Inserindo CSS dinâmico
+# 🔥 Inserindo CSS + som
 st.markdown(css % gerar_fagulhas(80), unsafe_allow_html=True)
+st.markdown(audio_html, unsafe_allow_html=True)
 
-# Divs das fagulhas
+# 🔥 Criando fagulhas
 spark_divs = "".join([
     f"<div class='spark {'long' if random.random() < 0.3 else ''}'></div>"
     for _ in range(80)
@@ -111,17 +116,17 @@ st.markdown(spark_divs, unsafe_allow_html=True)
 
 # Conteúdo do app
 st.markdown(
-    "<h1 style='text-align: center; color: white;'>🔥 Fagulhas Ultra Realistas</h1>",
+    "<h1 style='text-align: center; color: white;'>🔥 Fagulhas Ultra Realistas + Som</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
-    "<p style='text-align: center; color: white;'>Movimento suave, glow, blur, zigue-zague e brilho intermitente, simulando um braseiro perfeito.</p>",
+    "<p style='text-align: center; color: white;'>Fagulhas subindo, glow, blur, brilho intermitente, som ambiente de braseiro. Experiência completa.</p>",
     unsafe_allow_html=True,
 )
 
-st.write("💡 Seus inputs, gráficos e funcionalidades podem ser adicionados normalmente.")
+st.write("💡 Aqui você pode inserir suas funções, inputs, gráficos ou qualquer outro conteúdo.")
 
 nome = st.text_input("Digite seu nome:")
 if nome:
-    st.success(f"Seja bem-vindo, {nome}! 🔥✨")
+    st.success(f"Bem-vindo, {nome}! 🔥✨ Curta o som do braseiro ao fundo.")
