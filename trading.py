@@ -67,8 +67,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS Minimalista para Colunas
-# CSS com gradiente escuro sem transparência
+# CSS Completo com Colunas na Cor da Sidebar
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -150,6 +149,17 @@ h2, h3 {{
     backdrop-filter: blur(15px);
 }}
 
+/* Colunas com EXATAMENTE a mesma cor da sidebar */
+.stColumn {{
+    background: rgba(17, 17, 17, 0.95) !important;
+    border: 1px solid #333 !important;
+    backdrop-filter: blur(15px) !important;
+    border-radius: 12px !important;
+    padding: 1.5rem !important;
+    margin: 0.5rem !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+}}
+
 /* Métricas */
 [data-testid="stMetric"] {{
     background: rgba(26, 26, 26, 0.95) !important;
@@ -205,14 +215,6 @@ h2, h3 {{
     background: rgba(26, 26, 26, 0.95) !important;
     border: 1px solid #333;
     border-radius: 6px;
-}}
-
-/* Colunas com fundo escuro */
-.stColumn {{
-    background: rgba(26, 26, 26, 0.3) !important;
-    border-radius: 12px !important;
-    padding: 1rem !important;
-    margin: 0.1rem !important;
 }}
 
 {gerar_fagulhas(100)}
@@ -324,7 +326,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap com visualização 3D e codificação de cores para valores positivos e negativos"""[1]
+    """Heatmap minimalista com dias fora do ano transparentes"""
     if df_heatmap_final.empty:
         return None
     
@@ -564,7 +566,7 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # GRÁFICOS EM COLUNAS
+        # GRÁFICOS EM COLUNAS COM COR DA SIDEBAR
         st.markdown("### 🔥 Atividade Anual")
         col_heatmap = st.columns(1)[0]
         with col_heatmap:
