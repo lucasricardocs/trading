@@ -11,6 +11,14 @@ from datetime import datetime, timedelta, date
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import SpreadsheetNotFound
 import warnings
+import locale
+
+# Configurar locale para formatação brasileira
+try:
+    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
+except locale.Error:
+    # Fallback para sistemas sem locale pt_BR
+    locale.setlocale(locale.LC_ALL, 'Portuguese_Brazil.1252')
 
 # Suprimir warnings
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*observed=False.*")
@@ -160,27 +168,52 @@ h2, h3 {{
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
 }}
 
-/* MÉTRICAS SEM CONTAINERS - LADO A LADO */
-[data-testid="stMetric"] {{
-    background: transparent !important;
-    border: none !important;
-    border-radius: 0 !important;
-    padding: 0.5rem !important;
-    backdrop-filter: none !important;
-    box-shadow: none !important;
-    display: inline-block !important;
-    width: 100% !important;
+/* --- NOVO CSS PARA MÉTRICAS --- */
+/* Container das métricas */
+.metric-container {{
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 15px;
 }}
 
-[data-testid="stMetricLabel"] > div {{
-    color: #888;
-    font-size: 0.8rem;
+/* Estilização individual das métricas */
+.stMetric {{
+    background: rgba(26, 26, 26, 0.85) !important;
+    border-radius: 10px !important;
+    padding: 15px !important;
+    flex: 1;
+    text-align: center;
+    border: 1px solid #333 !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.3s ease !important;
+}}
+
+.stMetric:hover {{
+    transform: translateY(-5px) !important;
+    box-shadow: 0 6px 20px rgba(79, 195, 247, 0.3) !important;
+    border-color: #4fc3f7 !important;
+}}
+
+[data-testid="stMetricLabel"] {{
+    font-size: 0.9rem !important;
+    color: #9e9e9e !important;
+    margin-bottom: 5px !important;
 }}
 
 [data-testid="stMetricValue"] {{
-    color: #e8eaed;
-    font-weight: 500;
-    font-size: 1.5rem;
+    font-size: 1.7rem !important;
+    color: #e8eaed !important;
+    font-weight: 600 !important;
+    text-shadow: 0 0 8px rgba(79, 195, 247, 0.4) !important;
+}}
+
+.stMetric .positive {{
+    color: #28a745 !important;
+}}
+
+.stMetric .negative {{
+    color: #dc3545 !important;
 }}
 
 /* Inputs */
@@ -328,6 +361,15 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 20, 'padding': 0.05}
     else:
         return {'size': 15, 'padding': 0.02}
+
+def formatar_moeda(valor):
+    """Formata valor monetário com símbolo R$ e separadores brasileiros"""
+    try:
+        # Formatação usando locale
+        return locale.currency(valor, grouping=True, symbol=True)
+    except:
+        # Fallback manual
+        return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 def create_heatmap_2d_github(df_heatmap_final):
     """Heatmap minimalista com dias fora do ano transparentes"""
@@ -559,25 +601,44 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # MÉTRICAS SEM CONTAINERS - UMA AO LADO DA OUTRA
-        # Teste com texto simples
-        col1, col2 = st.columns(2)
+        # --- NOVO BLOCO DE MÉTRICAS ---
+        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
         with col1:
-            st.write("**💰 Total**")
-            st.write(f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
+            # 💰 Total
+            st.metric(
+                label="💰 Total", 
+                value=formatar_moeda(valor_total),
+                delta=None
+            )
+        
         with col2:
-            st.write("**📈 Média**")
-            st.write(f"R$ {media_resultado:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
+            # 📈 Média
+            st.metric(
+                label="📈 Média por Trade", 
+                value=formatar_moeda(media_resultado),
+                delta=None
+            )
         
-        col3, col4 = st.columns(2)
         with col3:
-            st.write("**🎯 Trades**")
-            st.write(f"{total_trades}")
-        with col4:
-            st.write("**✅ Acerto**")
-            st.write(f"{taxa_acerto:.0f}%")
-
+            # 🎯 Trades
+            st.metric(
+                label="🎯 Total de Trades", 
+                value=f"{total_trades}",
+                delta=None
+            )
         
+        with col4:
+            # ✅ Acerto
+            st.metric(
+                label="✅ Taxa de Acerto", 
+                value=f"{taxa_acerto:.0f}%",
+                delta=None
+            )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # GRÁFICOS EM COLUNAS
         st.markdown("### 🔥 Atividade Anual")
