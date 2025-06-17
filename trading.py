@@ -224,26 +224,26 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_3d_heatmap(df_heatmap_final):
-    """Cria um heatmap 3D com proporções garantidas."""
+    """Cria um heatmap 3D compacto com ângulo de 45 graus."""
     
     plt.style.use('dark_background')
     
-    # Criar figura com gridspec para controle total das proporções
-    fig = plt.figure(figsize=(20, 6))  # Formato panorâmico
+    # Tamanho reduzido para ficar similar ao heatmap 2D
+    fig = plt.figure(figsize=(12, 4))  # Reduzido de (20, 6) para (12, 4)
     fig.patch.set_alpha(0.0)
     
-    # Usar gridspec para controlar exatamente o espaço
+    # Usar gridspec para controle total
     gs = gridspec.GridSpec(1, 1, figure=fig, 
-                          left=0.02, right=0.98, 
-                          top=0.98, bottom=0.02)
+                          left=0.05, right=0.95, 
+                          top=0.95, bottom=0.05)
     
     ax = fig.add_subplot(gs[0], projection='3d')
     
-    # FORÇAR proporções 3D
+    # FORÇAR proporções 3D compactas
     try:
-        ax.set_box_aspect([4, 1, 0.6])  # [comprimento, largura, altura]
+        ax.set_box_aspect([3, 1, 0.5])  # Reduzido de [4, 1, 0.6]
     except:
-        pass  # Fallback para versões antigas do matplotlib
+        pass
     
     ano_atual = datetime.now().year
     data_inicio = pd.Timestamp(f'{ano_atual}-01-01')
@@ -279,7 +279,7 @@ def create_3d_heatmap(df_heatmap_final):
     y = np.array(dias_semana)
     z = np.zeros_like(x)
     
-    dx = dy = 0.85
+    dx = dy = 0.8  # Mantido
     dz = []
     
     max_abs_resultado = max(abs(min(resultados)), abs(max(resultados))) if resultados else 1
@@ -288,7 +288,7 @@ def create_3d_heatmap(df_heatmap_final):
         if resultado == 0:
             dz.append(0.02)
         else:
-            altura_barra = (abs(resultado) / max_abs_resultado) * 2.0 + 0.1
+            altura_barra = (abs(resultado) / max_abs_resultado) * 1.5 + 0.1  # Reduzido de 2.0
             dz.append(altura_barra)
     
     dz = np.array(dz)
@@ -325,19 +325,19 @@ def create_3d_heatmap(df_heatmap_final):
     
     # Plotar barras
     bars = ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True, alpha=0.95, 
-                    edgecolor='#2a2a2a', linewidth=0.1)
+                    edgecolor='#2a2a2a', linewidth=0.3)  # Linha mais fina
     
-    # Configurar eixos SEM LABELS (design limpo)
-    ax.set_xlabel('', fontsize=14, color='#e0e0e0', labelpad=15)
-    ax.set_ylabel('', fontsize=14, color='#e0e0e0', labelpad=15)
-    ax.set_zlabel('', fontsize=14, color='#e0e0e0', labelpad=15)
+    # Configurar eixos SEM LABELS
+    ax.set_xlabel('', fontsize=12, color='#e0e0e0')
+    ax.set_ylabel('', fontsize=12, color='#e0e0e0')
+    ax.set_zlabel('', fontsize=12, color='#e0e0e0')
     
     # Remover ticks e labels dos eixos
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_zticks([])
     
-    # Configurar fundo completamente transparente
+    # Configurar fundo transparente
     ax.xaxis.pane.fill = False
     ax.yaxis.pane.fill = False
     ax.zaxis.pane.fill = False
@@ -346,17 +346,17 @@ def create_3d_heatmap(df_heatmap_final):
     ax.zaxis.pane.set_edgecolor('none')
     ax.grid(False)
     
-    # Limites específicos para manter proporção
-    ax.set_xlim(0, 53)  # 53 semanas
-    ax.set_ylim(-0.5, 6.5)  # 7 dias
+    # Limites compactos
+    ax.set_xlim(0, 53)
+    ax.set_ylim(-0.5, 6.5)
     ax.set_zlim(0, max(dz) * 1.1 if len(dz) > 0 else 1)
     
-    # Ângulo otimizado para formato panorâmico
-    ax.view_init(elev=12, azim=-60)
+    # ÂNGULO DE 45 GRAUS conforme solicitado
+    ax.view_init(elev=45, azim=-45)
     
-    # Salvar com alta qualidade
+    # Salvar com qualidade padrão
     buffer = io.BytesIO()
-    plt.savefig(buffer, format='png', dpi=300, 
+    plt.savefig(buffer, format='png', dpi=200, 
                 bbox_inches='tight', facecolor='none', 
                 edgecolor='none', transparent=True,
                 pad_inches=0)
@@ -364,6 +364,162 @@ def create_3d_heatmap(df_heatmap_final):
     plt.close()
     
     return buffer
+
+def create_heatmap_2d_github(df_heatmap_final):
+    """Cria um heatmap 2D estilo GitHub sem legendas."""
+    
+    if df_heatmap_final.empty:
+        st.info("Dados insuficientes para gerar o heatmap 2D.")
+        return None
+    
+    # Determinar o ano atual
+    current_year = datetime.now().year
+    
+    # Obter o dia da semana do primeiro dia do ano
+    first_day_of_year = pd.Timestamp(f'{current_year}-01-01')
+    first_day_weekday = first_day_of_year.weekday()
+    
+    # Calcular quantos dias antes do 01/01 para começar na segunda-feira
+    days_before = first_day_weekday
+    
+    # Criar range de datas começando na segunda-feira da semana do 01/01
+    start_date = first_day_of_year - pd.Timedelta(days=days_before)
+    end_date = datetime(current_year, 12, 31)
+    
+    # Garantir que terminamos no domingo da última semana
+    days_after = 6 - end_date.weekday()
+    if days_after < 6:
+        end_date = end_date + pd.Timedelta(days=days_after)
+    
+    all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
+
+    # DataFrame com todas as datas
+    full_df = pd.DataFrame({'Data': all_dates.date})
+    
+    # Marcar quais datas são do ano atual
+    full_df['is_current_year'] = pd.to_datetime(full_df['Data']).dt.year == current_year
+    
+    # Fazer merge com os dados de trading
+    full_df = full_df.merge(df_heatmap_final, on='Data', how='left')
+    full_df['RESULTADO_LIQUIDO'] = full_df['RESULTADO_LIQUIDO'].fillna(0)
+    
+    # Para dias que não são do ano atual, definir como None
+    full_df['display_resultado'] = full_df['RESULTADO_LIQUIDO'].copy()
+    mask_not_current_year = ~full_df['is_current_year']
+    full_df.loc[mask_not_current_year, 'display_resultado'] = None
+
+    # Converter Data para datetime para cálculos
+    full_df['Data_dt'] = pd.to_datetime(full_df['Data'])
+    
+    # Mapear os nomes dos dias
+    full_df['day_of_week'] = full_df['Data_dt'].dt.weekday
+    day_name_map = {0: 'Seg', 1: 'Ter', 2: 'Qua', 3: 'Qui', 4: 'Sex', 5: 'Sáb', 6: 'Dom'}
+    full_df['day_display_name'] = full_df['day_of_week'].map(day_name_map)
+    
+    # Ordem fixa dos dias
+    day_display_names = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+    
+    full_df['month'] = full_df['Data_dt'].dt.month
+    full_df['month_name'] = full_df['Data_dt'].dt.strftime('%b')
+
+    # Recalcular week baseado na primeira data
+    full_df['week_corrected'] = ((full_df['Data_dt'] - start_date).dt.days // 7)
+    
+    # Encontrar a primeira semana de cada mês para os rótulos
+    month_labels = full_df[full_df['is_current_year']].groupby('month').agg(
+        week_corrected=('week_corrected', 'min'),
+        month_name=('month_name', 'first')
+    ).reset_index()
+
+    # Labels dos meses (SEM LEGENDAS)
+    months_chart = alt.Chart(month_labels).mark_text(
+        align='center',
+        baseline='bottom',
+        fontSize=12,
+        dy=-1,
+        dx=-30,
+        color='#A9A9A9'
+    ).encode(
+        x=alt.X('week_corrected:O', axis=None),
+        text='month_name:N'
+    )
+
+    # Tooltip simples
+    tooltip_fields = [
+        alt.Tooltip('Data:T', title='Data', format='%d/%m/%Y'),
+        alt.Tooltip('day_display_name:N', title='Dia'),
+        alt.Tooltip('RESULTADO_LIQUIDO:Q', title='Resultado (R$)', format=',.2f')
+    ]
+
+    # Calcular domínios para escala de cores
+    valores = full_df[full_df['is_current_year']]['RESULTADO_LIQUIDO']
+    max_positivo = valores[valores > 0].max() if len(valores[valores > 0]) > 0 else 100
+    max_negativo = valores[valores < 0].min() if len(valores[valores < 0]) > 0 else -100
+    
+    # Thresholds baseados nos dados
+    threshold_1 = max_positivo * 0.25
+    threshold_2 = max_positivo * 0.5
+    threshold_3 = max_positivo * 0.75
+
+    # Gráfico principal (heatmap) SEM LEGENDAS
+    heatmap = alt.Chart(full_df).mark_rect(
+        stroke='#ffffff',
+        strokeWidth=2,
+        cornerRadius=0.5
+    ).encode(
+        x=alt.X('week_corrected:O',
+                title=None, 
+                axis=None),
+        y=alt.Y('day_display_name:N', 
+                sort=day_display_names,
+                title=None,
+                axis=alt.Axis(labelAngle=0, labelFontSize=12, ticks=False, domain=False, grid=False, labelColor='#A9A9A9')),
+        color=alt.condition(
+            alt.datum.display_resultado == None,
+            alt.value('#161b22'),  # Dias fora do ano
+            alt.condition(
+                alt.datum.display_resultado == 0,
+                alt.value('#0d1117'),  # Dias sem trades
+                alt.condition(
+                    alt.datum.display_resultado > 0,
+                    # Escala de verdes para lucros
+                    alt.Color('display_resultado:Q',
+                        scale=alt.Scale(
+                            range=['#0e4429', '#006d32', '#26a641', '#39d353'],
+                            type='threshold',
+                            domain=[0.01, threshold_1, threshold_2, threshold_3]
+                        ),
+                        legend=None),  # SEM LEGENDA
+                    # Escala de vermelhos para perdas
+                    alt.Color('display_resultado:Q',
+                        scale=alt.Scale(
+                            range=['#450a0a', '#7f1d1d', '#dc2626', '#f87171'],
+                            type='threshold',
+                            domain=[max_negativo, max_negativo * 0.75, max_negativo * 0.5, max_negativo * 0.25]
+                        ),
+                        legend=None)  # SEM LEGENDA
+                )
+            )
+        ),
+        tooltip=tooltip_fields
+    ).properties(
+        height=250
+    )
+
+    # Combinar gráfico final SEM TÍTULO
+    final_chart = alt.vconcat(
+        months_chart,
+        heatmap,
+        spacing=1
+    ).configure_view(
+        strokeWidth=0
+    ).configure_concat(
+        spacing=5
+    ).configure(
+        background='transparent'
+    )
+
+    return final_chart
 
 # --- Interface Principal ---
 st.title("📈 Análise de Operações de Trading")
@@ -556,59 +712,15 @@ else:
             df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
             df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
             
-            # Heatmap 3D com controle de proporção
+            # Heatmap 3D compacto com ângulo de 45 graus
             heatmap_3d_buffer = create_3d_heatmap(df_heatmap_final)
             if heatmap_3d_buffer:
-                # Usar colunas para controlar melhor a exibição
-                col1, col2, col3 = st.columns([0.5, 10, 0.5])
-                with col2:
-                    st.image(heatmap_3d_buffer, use_column_width=True)
+                st.image(heatmap_3d_buffer, use_column_width=True)
             
-            # Heatmap 2D
-            df_heatmap_2d = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
-            df_heatmap_2d['RESULTADO_LIQUIDO'] = df_heatmap_2d['RESULTADO_LIQUIDO'].fillna(0)
-            
-            df_heatmap_2d['Data_dt'] = pd.to_datetime(df_heatmap_2d['Data'])
-            df_heatmap_2d['Semana'] = df_heatmap_2d['Data_dt'].dt.isocalendar().week
-            df_heatmap_2d['DiaSemana'] = df_heatmap_2d['Data_dt'].dt.dayofweek
-            
-            primeira_semana = df_heatmap_2d['Semana'].min()
-            df_heatmap_2d['Semana_Ajustada'] = df_heatmap_2d['Semana'] - primeira_semana + 1
-            
-            valor_max = abs(df_heatmap_2d['RESULTADO_LIQUIDO']).max()
-            
-            heatmap_2d = alt.Chart(df_heatmap_2d).mark_rect(
-                stroke='white',
-                strokeWidth=1
-            ).encode(
-                x=alt.X('Semana_Ajustada:O', 
-                        title='Semanas do Ano',
-                        axis=alt.Axis(labelAngle=0, tickCount=12)),
-                y=alt.Y('DiaSemana:O', 
-                        title='Dias da Semana',
-                        axis=alt.Axis(
-                            labelExpr="datum.value == 0 ? 'Seg' : datum.value == 1 ? 'Ter' : datum.value == 2 ? 'Qua' : datum.value == 3 ? 'Qui' : datum.value == 4 ? 'Sex' : datum.value == 5 ? 'Sáb' : 'Dom'"
-                        ),
-                        scale=alt.Scale(domain=[0, 1, 2, 3, 4, 5, 6])),
-                color=alt.Color(
-                    'RESULTADO_LIQUIDO:Q',
-                    scale=alt.Scale(
-                        domain=[-valor_max if valor_max > 0 else -1, 0, valor_max if valor_max > 0 else 1],
-                        range=['#d73027', '#f1f1f1', '#1a9850']
-                    ),
-                    title='Resultado Líquido (R$)'
-                ),
-                tooltip=[
-                    alt.Tooltip('Data:T', title='Data'),
-                    alt.Tooltip('RESULTADO_LIQUIDO:Q', format='.2f', title='Resultado (R$)')
-                ]
-            ).properties(
-                width='container',
-                height=200,
-                background='transparent'
-            )
-            
-            st.altair_chart(heatmap_2d, use_container_width=True)
+            # Heatmap 2D estilo GitHub sem legendas
+            heatmap_2d_github = create_heatmap_2d_github(df_heatmap_final)
+            if heatmap_2d_github:
+                st.altair_chart(heatmap_2d_github, use_container_width=True)
         
         # Evolução Acumulada
         st.subheader("📊 Evolução Acumulada")
@@ -727,7 +839,7 @@ else:
                 num_dias = len(df_por_dia)
                 config = calcular_largura_e_espacamento(num_dias)
                 
-                # Adicionar índice sequencial para melhor controle do espaçamento
+                # Adicionar índice sequencial
                 df_por_dia_indexed = df_por_dia.copy()
                 df_por_dia_indexed['Dia_Index'] = range(1, len(df_por_dia_indexed) + 1)
                 
