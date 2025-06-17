@@ -67,7 +67,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS Minimalista
+# CSS Minimalista para Colunas
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -206,6 +206,14 @@ h2, h3 {{
     border-radius: 6px;
 }}
 
+/* Colunas com fundo escuro */
+.stColumn {{
+    background: rgba(26, 26, 26, 0.3) !important;
+    border-radius: 12px !important;
+    padding: 1rem !important;
+    margin: 0.5rem !important;
+}}
+
 {gerar_fagulhas(100)}
 </style>
 """
@@ -315,7 +323,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap minimalista com dias fora do ano transparentes"""
+    """Heatmap com visualização 3D e codificação de cores para valores positivos e negativos"""[1]
     if df_heatmap_final.empty:
         return None
     
@@ -469,7 +477,7 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
 # --- Interface ---
 st.title("🔥 Trading Analytics")
 
-# --- Sidebar SEM CONTAINERS ---
+# --- Sidebar ---
 with st.sidebar:
     st.markdown("### ➕ Adicionar")
     
@@ -523,11 +531,10 @@ with st.sidebar:
         resumo_ativo = resumo_ativo.reset_index()
         st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
 
-# --- Corpo Principal SEM CONTAINERS DESNECESSÁRIOS ---
+# --- Corpo Principal ---
 if df.empty:
     st.info("🔥 Adicione operações para começar")
 else:
-    # Expander SEM container
     with st.expander("📋 Ver todas as operações"):
         st.dataframe(df, use_container_width=True)
 
@@ -545,7 +552,7 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # Métricas SEM container
+        # Métricas
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("💰 Total", f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
@@ -556,9 +563,10 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # CONTAINER APENAS para Heatmap
+        # GRÁFICOS EM COLUNAS
         st.markdown("### 🔥 Atividade Anual")
-        with st.container(border=True):
+        col_heatmap = st.columns(1)[0]
+        with col_heatmap:
             df_heatmap = df.copy()
             if not df_heatmap.empty and 'ABERTURA' in df_heatmap.columns:
                 df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
@@ -577,60 +585,58 @@ else:
                 if heatmap_2d_github:
                     st.altair_chart(heatmap_2d_github, use_container_width=True)
         
-        # CONTAINER APENAS para Evolução
         st.markdown("### 📊 Evolução Acumulada")
-        with st.container(border=True):
+        col_evolution = st.columns(1)[0]
+        with col_evolution:
             if not df_por_dia.empty:
                 df_area = df_por_dia.copy().sort_values('Data')
                 df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
                 evolution_chart = create_evolution_chart_with_gradient(df_area)
                 st.altair_chart(evolution_chart, use_container_width=True)
 
-        # CONTAINER APENAS para Trades
         st.markdown("### 🎯 Resultados por Trade")
-        with st.container(border=True):
-            col_trades, col_radial = st.columns([2, 1])
-            
-            with col_trades:
-                if not df_filtrado.empty:
-                    df_trades = df_filtrado.copy()
-                    df_trades = df_trades.sort_values('ABERTURA')
-                    df_trades['Index'] = range(1, len(df_trades) + 1)
-                    num_trades = len(df_trades)
-                    config = calcular_largura_e_espacamento(num_trades)
-                    
-                    bars = alt.Chart(df_trades).mark_bar(
-                        size=config['size'], 
-                        cornerRadius=1,
-                        stroke='white',
-                        strokeWidth=2
-                    ).encode(
-                        x=alt.X('Index:O', title='', axis=alt.Axis(grid=False, domain=False, ticks=False),
-                               scale=alt.Scale(paddingInner=config['padding'], paddingOuter=0.1)),
-                        y=alt.Y('RESULTADO_LIQUIDO:Q', title='', axis=alt.Axis(grid=True, gridOpacity=0.1)),
-                        color=alt.condition(alt.datum.RESULTADO_LIQUIDO > 0, alt.value('#28a745'), alt.value('#dc3545')),
-                        tooltip=[
-                            alt.Tooltip('Index:O', title='#'),
-                            alt.Tooltip('ABERTURA:T', title='Data', format='%d/%m'),
-                            alt.Tooltip('ATIVO:N', title='Ativo'),
-                            alt.Tooltip('RESULTADO_LIQUIDO:Q', format=',.0f', title='R$')
-                        ]
-                    )
-                    
-                    linha_zero = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
-                        color='#666', strokeWidth=2, opacity=0.5
-                    ).encode(y=alt.Y('zero:Q'))
-                    
-                    chart_final = (bars + linha_zero).properties(
-                        width='container', height=300, background='transparent'
-                    )
-                    st.altair_chart(chart_final, use_container_width=True)
-            
-            with col_radial:
-                st.markdown("#### Distribuição")
-                radial_chart = create_radial_chart(trades_ganhadores, trades_perdedores)
-                if radial_chart:
-                    st.altair_chart(radial_chart, use_container_width=True)
+        col_trades, col_radial = st.columns([2, 1])
+        
+        with col_trades:
+            if not df_filtrado.empty:
+                df_trades = df_filtrado.copy()
+                df_trades = df_trades.sort_values('ABERTURA')
+                df_trades['Index'] = range(1, len(df_trades) + 1)
+                num_trades = len(df_trades)
+                config = calcular_largura_e_espacamento(num_trades)
+                
+                bars = alt.Chart(df_trades).mark_bar(
+                    size=config['size'], 
+                    cornerRadius=1,
+                    stroke='white',
+                    strokeWidth=2
+                ).encode(
+                    x=alt.X('Index:O', title='', axis=alt.Axis(grid=False, domain=False, ticks=False),
+                           scale=alt.Scale(paddingInner=config['padding'], paddingOuter=0.1)),
+                    y=alt.Y('RESULTADO_LIQUIDO:Q', title='', axis=alt.Axis(grid=True, gridOpacity=0.1)),
+                    color=alt.condition(alt.datum.RESULTADO_LIQUIDO > 0, alt.value('#28a745'), alt.value('#dc3545')),
+                    tooltip=[
+                        alt.Tooltip('Index:O', title='#'),
+                        alt.Tooltip('ABERTURA:T', title='Data', format='%d/%m'),
+                        alt.Tooltip('ATIVO:N', title='Ativo'),
+                        alt.Tooltip('RESULTADO_LIQUIDO:Q', format=',.0f', title='R$')
+                    ]
+                )
+                
+                linha_zero = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
+                    color='#666', strokeWidth=2, opacity=0.5
+                ).encode(y=alt.Y('zero:Q'))
+                
+                chart_final = (bars + linha_zero).properties(
+                    width='container', height=300, background='transparent'
+                )
+                st.altair_chart(chart_final, use_container_width=True)
+        
+        with col_radial:
+            st.markdown("#### Distribuição")
+            radial_chart = create_radial_chart(trades_ganhadores, trades_perdedores)
+            if radial_chart:
+                st.altair_chart(radial_chart, use_container_width=True)
 
 # Rodapé
 st.markdown("""
