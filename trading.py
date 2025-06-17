@@ -68,7 +68,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS CORRIGIDO
+# CSS CORRIGIDO para garantir que a UI fique sobre as fagulhas
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -84,7 +84,7 @@ body {{
     opacity: 0;
     mix-blend-mode: screen;
     animation: rise linear infinite, flicker ease-in-out infinite;
-    z-index: 1; /* Camada de fundo */
+    z-index: -1; /* CHAVE DA CORREÇÃO: Coloca as fagulhas sempre no fundo */
     pointer-events: none;
 }}
 
@@ -122,11 +122,9 @@ body {{
 
 /* UI Trading sobre as fagulhas */
 .stApp {{
-    background: transparent;
+    background: transparent; /* CHAVE DA CORREÇÃO: Fundo transparente para ver as fagulhas */
     color: #e8eaed;
     font-family: 'Inter', sans-serif;
-    position: relative; /* CHAVE DA CORREÇÃO */
-    z-index: 10; /* Camada da frente */
 }}
 
 h1 {{
@@ -145,21 +143,20 @@ h2, h3 {{
     margin: 1rem 0 0.5rem 0;
 }}
 
-/* Sidebar */
+/* Sidebar com fundo translúcido */
 .css-1d391kg {{
-    background: rgba(17, 17, 17, 0.95) !important;
+    background: rgba(17, 17, 17, 0.9) !important;
     border-right: 1px solid #333;
-    backdrop-filter: blur(15px);
+    backdrop-filter: blur(10px);
 }}
 
-/* Métricas */
+/* Métricas com fundo translúcido */
 [data-testid="stMetric"] {{
-    background: rgba(26, 26, 26, 0.95) !important;
+    background: rgba(26, 26, 26, 0.9) !important;
     border: 1px solid #333;
     border-radius: 8px;
     padding: 1rem;
-    backdrop-filter: blur(15px);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(10px);
 }}
 
 [data-testid="stMetricLabel"] > div {{
@@ -172,11 +169,11 @@ h2, h3 {{
     font-weight: 500;
 }}
 
-/* Inputs */
+/* Inputs com fundo translúcido */
 .stSelectbox > div > div,
 .stTextInput > div > div > input,
 .stNumberInput > div > div > input {{
-    background: rgba(26, 26, 26, 0.95) !important;
+    background: rgba(26, 26, 26, 0.9) !important;
     border: 1px solid #333;
     border-radius: 6px;
     color: #e8eaed;
@@ -184,30 +181,28 @@ h2, h3 {{
 
 /* Botões */
 .stButton > button {{
-    background: rgba(41, 182, 246, 0.95) !important;
+    background: rgba(41, 182, 246, 0.9) !important;
     border: none;
     border-radius: 6px;
     color: white;
     font-weight: 500;
     padding: 0.5rem 1rem;
-    box-shadow: 0 4px 15px rgba(41, 182, 246, 0.3);
 }}
 
 .stButton > button:hover {{
-    background: rgba(3, 169, 244, 0.95) !important;
-    transform: translateY(-1px);
+    background: rgba(3, 169, 244, 0.9) !important;
 }}
 
 /* Alertas */
 [data-testid="stAlert"] {{
-    background: rgba(26, 26, 26, 0.95) !important;
+    background: rgba(26, 26, 26, 0.9) !important;
     border: 1px solid #333;
     border-radius: 6px;
 }}
 
 /* Expander */
 .streamlit-expanderHeader {{
-    background: rgba(26, 26, 26, 0.95) !important;
+    background: rgba(26, 26, 26, 0.9) !important;
     border: 1px solid #333;
     border-radius: 6px;
 }}
@@ -216,7 +211,7 @@ h2, h3 {{
 .vega-embed {{
     background: rgba(0, 0, 0, 0.4) !important;
     border-radius: 8px;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(5px);
 }}
 
 {gerar_fagulhas(100)}
@@ -438,7 +433,7 @@ def create_evolution_chart_with_gradient(df_area):
     
     return area_chart
 
-# --- Interface Principal ---
+# --- Interface ---
 st.title("🔥 Trading Analytics")
 
 # --- Sidebar ---
@@ -497,7 +492,7 @@ with st.sidebar:
         resumo_ativo = resumo_ativo.reset_index()
         st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
 
-# --- Corpo Principal ---
+# --- Principal ---
 if df.empty:
     st.info("🔥 Adicione operações para começar")
 else:
@@ -589,7 +584,7 @@ else:
 
 # Rodapé
 st.markdown("""
-<div style="text-align:center;color:#666;font-size:0.8rem;margin-top:2rem;padding:1rem;border-top:1px solid #333;position:relative;z-index:1;background:rgba(0,0,0,0.9);backdrop-filter:blur(15px);">
+<div style="text-align:center;color:#666;font-size:0.8rem;margin-top:2rem;padding:1rem;border-top:1px solid #333;background:rgba(0,0,0,0.8);">
     🔥 Trading Analytics • 2025
 </div>
 """, unsafe_allow_html=True)
