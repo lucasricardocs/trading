@@ -21,13 +21,13 @@ WORKSHEET_NAME = "dados"
 
 # --- Configuração da Página ---
 st.set_page_config(
-    page_title="Trading",
+    page_title="Trading Analytics",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 🎨 Cores simulando temperatura
+# 🎨 Cores para fagulhas
 cores = ['#ff4500', '#ff8c00', '#ffd700', '#ffffff']
 
 # 🎧 Som de braseiro
@@ -47,7 +47,6 @@ def gerar_fagulhas(qtd=100):
         delay = random.uniform(0, 8)
         shift = random.randint(-100, 100)
         rotation = random.randint(-180, 180)
-
         scale = random.uniform(0.6, 1.5)
         blur = max(0.5, (2.0 - scale))
         cor = random.choice(cores)
@@ -68,7 +67,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS CORRIGIDO para garantir que a UI fique sobre as fagulhas
+# CSS Aprimorado com Containers Estilizados
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -84,7 +83,7 @@ body {{
     opacity: 0;
     mix-blend-mode: screen;
     animation: rise linear infinite, flicker ease-in-out infinite;
-    z-index: -1; /* CHAVE DA CORREÇÃO: Coloca as fagulhas sempre no fundo */
+    z-index: -1;
     pointer-events: none;
 }}
 
@@ -122,7 +121,7 @@ body {{
 
 /* UI Trading sobre as fagulhas */
 .stApp {{
-    background: transparent; /* CHAVE DA CORREÇÃO: Fundo transparente para ver as fagulhas */
+    background: transparent;
     color: #e8eaed;
     font-family: 'Inter', sans-serif;
 }}
@@ -143,20 +142,20 @@ h2, h3 {{
     margin: 1rem 0 0.5rem 0;
 }}
 
-/* Sidebar com fundo translúcido */
+/* Sidebar */
 .css-1d391kg {{
-    background: rgba(17, 17, 17, 0.9) !important;
+    background: rgba(17, 17, 17, 0.95) !important;
     border-right: 1px solid #333;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(15px);
 }}
 
-/* Métricas com fundo translúcido */
+/* Métricas */
 [data-testid="stMetric"] {{
-    background: rgba(26, 26, 26, 0.9) !important;
+    background: rgba(26, 26, 26, 0.95) !important;
     border: 1px solid #333;
     border-radius: 8px;
     padding: 1rem;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(15px);
 }}
 
 [data-testid="stMetricLabel"] > div {{
@@ -169,11 +168,11 @@ h2, h3 {{
     font-weight: 500;
 }}
 
-/* Inputs com fundo translúcido */
+/* Inputs */
 .stSelectbox > div > div,
 .stTextInput > div > div > input,
 .stNumberInput > div > div > input {{
-    background: rgba(26, 26, 26, 0.9) !important;
+    background: rgba(26, 26, 26, 0.95) !important;
     border: 1px solid #333;
     border-radius: 6px;
     color: #e8eaed;
@@ -181,7 +180,7 @@ h2, h3 {{
 
 /* Botões */
 .stButton > button {{
-    background: rgba(41, 182, 246, 0.9) !important;
+    background: rgba(41, 182, 246, 0.95) !important;
     border: none;
     border-radius: 6px;
     color: white;
@@ -190,43 +189,159 @@ h2, h3 {{
 }}
 
 .stButton > button:hover {{
-    background: rgba(3, 169, 244, 0.9) !important;
+    background: rgba(3, 169, 244, 0.95) !important;
 }}
 
 /* Alertas */
 [data-testid="stAlert"] {{
-    background: rgba(26, 26, 26, 0.9) !important;
+    background: rgba(26, 26, 26, 0.95) !important;
     border: 1px solid #333;
     border-radius: 6px;
 }}
 
 /* Expander */
 .streamlit-expanderHeader {{
-    background: rgba(26, 26, 26, 0.9) !important;
+    background: rgba(26, 26, 26, 0.95) !important;
     border: 1px solid #333;
     border-radius: 6px;
 }}
 
-/* Gráficos */
-.vega-embed {{
-    background: rgba(0, 0, 0, 0.4) !important;
-    border-radius: 8px;
-    backdrop-filter: blur(5px);
+/* CONTAINERS ESTILIZADOS PARA GRÁFICOS */
+.chart-container {{
+    background: linear-gradient(135deg, rgba(20, 25, 40, 0.8) 0%, rgba(30, 35, 50, 0.9) 100%);
+    border: 1px solid rgba(79, 195, 247, 0.2);
+    border-radius: 16px;
+    padding: 2rem;
+    margin: 1.5rem 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    position: relative;
+    overflow: hidden;
+}}
+
+.chart-container::before {{
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(79, 195, 247, 0.5), transparent);
+}}
+
+.chart-container h3 {{
+    color: #4fc3f7;
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 1.3rem;
+    font-weight: 500;
+    text-shadow: 0 0 8px rgba(79, 195, 247, 0.3);
+}}
+
+/* Container específico para heatmap */
+.heatmap-container {{
+    background: linear-gradient(135deg, rgba(25, 30, 20, 0.8) 0%, rgba(35, 45, 30, 0.9) 100%);
+    border: 1px solid rgba(40, 167, 69, 0.2);
+    border-radius: 16px;
+    padding: 2rem;
+    margin: 1.5rem 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    position: relative;
+    overflow: hidden;
+}}
+
+.heatmap-container::before {{
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(40, 167, 69, 0.5), transparent);
+}}
+
+.heatmap-container h3 {{
+    color: #28a745;
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 1.3rem;
+    font-weight: 500;
+    text-shadow: 0 0 8px rgba(40, 167, 69, 0.3);
+}}
+
+/* Container específico para evolução */
+.evolution-container {{
+    background: linear-gradient(135deg, rgba(30, 20, 40, 0.8) 0%, rgba(45, 30, 60, 0.9) 100%);
+    border: 1px solid rgba(138, 43, 226, 0.2);
+    border-radius: 16px;
+    padding: 2rem;
+    margin: 1.5rem 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    position: relative;
+    overflow: hidden;
+}}
+
+.evolution-container::before {{
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(138, 43, 226, 0.5), transparent);
+}}
+
+.evolution-container h3 {{
+    color: #8a2be2;
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 1.3rem;
+    font-weight: 500;
+    text-shadow: 0 0 8px rgba(138, 43, 226, 0.3);
+}}
+
+/* Container específico para trades */
+.trades-container {{
+    background: linear-gradient(135deg, rgba(40, 20, 20, 0.8) 0%, rgba(60, 30, 30, 0.9) 100%);
+    border: 1px solid rgba(220, 53, 69, 0.2);
+    border-radius: 16px;
+    padding: 2rem;
+    margin: 1.5rem 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    position: relative;
+    overflow: hidden;
+}}
+
+.trades-container::before {{
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(220, 53, 69, 0.5), transparent);
+}}
+
+.trades-container h3 {{
+    color: #dc3545;
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 1.3rem;
+    font-weight: 500;
+    text-shadow: 0 0 8px rgba(220, 53, 69, 0.3);
 }}
 
 {gerar_fagulhas(100)}
 </style>
 """
 
-# 🔥 Inserindo CSS + som
+# 🔥 Inserindo CSS, som e fagulhas
 st.markdown(css, unsafe_allow_html=True)
 st.markdown(audio_html, unsafe_allow_html=True)
-
-# 🔥 Criando fagulhas
-spark_divs = "".join([
-    f"<div class='spark {'long' if random.random() < 0.2 else ''}'></div>"
-    for _ in range(100)
-])
+spark_divs = "".join([f"<div class='spark {'long' if random.random() < 0.2 else ''}'></div>" for _ in range(100)])
 st.markdown(spark_divs, unsafe_allow_html=True)
 
 # --- Funções ---
@@ -387,7 +502,7 @@ def create_heatmap_2d_github(df_heatmap_final):
         color=alt.condition(
             alt.datum.display_resultado == None, alt.value('#222'),
             alt.condition(
-                alt.datum.display_resultado == 0, alt.value('#f5f5f5'),
+                alt.datum.display_resultado == 0, alt.value('#eeeeee'),  # Cinza bem claro
                 alt.condition(
                     alt.datum.display_resultado > 0,
                     alt.Color('display_resultado:Q',
@@ -411,8 +526,6 @@ def create_heatmap_2d_github(df_heatmap_final):
         strokeWidth=0).configure(background='transparent')
 
 def create_evolution_chart_with_gradient(df_area):
-    max_abs_value = max(abs(df_area['Acumulado'].min()), abs(df_area['Acumulado'].max()))
-    
     area_chart = alt.Chart(df_area).mark_area(
         line={'strokeWidth': 3, 'stroke': '#ffffff'},
         opacity=0.7, interpolate='monotone'
@@ -492,7 +605,7 @@ with st.sidebar:
         resumo_ativo = resumo_ativo.reset_index()
         st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
 
-# --- Principal ---
+# --- Corpo Principal ---
 if df.empty:
     st.info("🔥 Adicione operações para começar")
 else:
@@ -523,8 +636,9 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # Heatmap
-        st.markdown("### 🔥 Atividade")
+        # Heatmap Anual em Container Verde
+        st.markdown('<div class="heatmap-container">', unsafe_allow_html=True)
+        st.markdown("### 🔥 Atividade Anual")
         df_heatmap = df.copy()
         if not df_heatmap.empty and 'ABERTURA' in df_heatmap.columns:
             df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
@@ -542,17 +656,21 @@ else:
             heatmap_2d_github = create_heatmap_2d_github(df_heatmap_final)
             if heatmap_2d_github:
                 st.altair_chart(heatmap_2d_github, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        # Evolução
-        st.markdown("### 📊 Evolução")
+        # Evolução Acumulada em Container Roxo
+        st.markdown('<div class="evolution-container">', unsafe_allow_html=True)
+        st.markdown("### 📊 Evolução Acumulada")
         if not df_por_dia.empty:
             df_area = df_por_dia.copy().sort_values('Data')
             df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
             evolution_chart = create_evolution_chart_with_gradient(df_area)
             st.altair_chart(evolution_chart, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # Trades
-        st.markdown("### 🎯 Trades")
+        # Resultados por Trade em Container Vermelho
+        st.markdown('<div class="trades-container">', unsafe_allow_html=True)
+        st.markdown("### 🎯 Resultados por Trade")
         if not df_filtrado.empty:
             df_trades = df_filtrado.copy()
             df_trades = df_trades.sort_values('ABERTURA')
@@ -581,10 +699,11 @@ else:
                 width='container', height=300, background='transparent'
             )
             st.altair_chart(chart_final, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # Rodapé
 st.markdown("""
 <div style="text-align:center;color:#666;font-size:0.8rem;margin-top:2rem;padding:1rem;border-top:1px solid #333;background:rgba(0,0,0,0.8);">
-    🔥 Trading Analytics • 2025
+    🔥 Trading Analytics • 2025 • Fagulhas 3D + Som ambiente
 </div>
 """, unsafe_allow_html=True)
