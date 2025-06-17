@@ -72,12 +72,12 @@ def gerar_fagulhas(qtd=100):
 css = f"""
 <style>
 .stColumn {{
-    background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3a 100%) !important;
+    background: #1a1a1a !important;  /* Cor sólida sem transparência */
     border-radius: 12px !important;
     padding: 1.5rem !important;
     margin: 0.5rem !important;
     border: 1px solid #404040 !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
 }}
 
 .spark {{
