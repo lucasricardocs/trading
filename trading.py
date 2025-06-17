@@ -70,7 +70,6 @@ Seu navegador não suporta áudio.
 </audio>
 """
 
-# Função que gera CSS dinâmico para fagulhas
 def gerar_fagulhas(qtd=80):
     fagulhas = ""
     for i in range(qtd):
@@ -104,7 +103,7 @@ def gerar_fagulhas(qtd=80):
     return fagulhas
 
 # 🔥 Inserindo CSS + som
-st.markdown(css % gerar_fagulhas(80), unsafe_allow_html=True)
+st.markdown(css + "<style>" + gerar_fagulhas(80) + "</style>", unsafe_allow_html=True)
 st.markdown(audio_html, unsafe_allow_html=True)
 
 # 🔥 Criando fagulhas
@@ -114,7 +113,6 @@ spark_divs = "".join([
 ])
 st.markdown(spark_divs, unsafe_allow_html=True)
 
-# Conteúdo do app
 st.markdown(
     "<h1 style='text-align: center; color: white;'>🔥 Fagulhas Ultra Realistas + Som</h1>",
     unsafe_allow_html=True,
