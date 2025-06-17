@@ -26,187 +26,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 🎨 Cores para fagulhas
-cores = ['#ff4500', '#ff8c00', '#ffd700', '#ffffff']
-
-# 🎧 Som de braseiro
-audio_html = """
-<audio autoplay loop volume="0.3">
-  <source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_ef3fcd5aab.mp3?filename=fireplace-crackling-11268.mp3" type="audio/mp3">
-</audio>
-"""
-
-# 🔥 Função para gerar CSS das fagulhas
-def gerar_fagulhas(qtd=100):
-    fagulhas = ""
-    for i in range(qtd):
-        left = random.randint(0, 100)
-        size = random.uniform(3, 6)
-        duration = random.uniform(5, 9)
-        delay = random.uniform(0, 8)
-        shift = random.randint(-100, 100)
-        rotation = random.randint(-180, 180)
-        scale = random.uniform(0.6, 1.5)
-        blur = max(0.5, (2.0 - scale))
-        cor = random.choice(cores)
-
-        fagulhas += f"""
-        .spark:nth-child({i+1}) {{
-            left: {left}%;
-            width: {size}px;
-            height: {size}px;
-            background: {cor};
-            --horizontal-shift: {shift}px;
-            --rotation: {rotation}deg;
-            --scale: {scale};
-            --blur: {blur}px;
-            animation-duration: {duration}s, {random.uniform(1,3)}s;
-            animation-delay: {delay}s, {random.uniform(0,2)}s;
-        }}
-        """
-    return fagulhas
-
-# CSS Completo com Fagulhas
-css = f"""
-<style>
-/* Background e fagulhas */
-body {{
-    background-color: #000000;
-    overflow-x: hidden;
-}}
-
-.spark {{
-    position: fixed;
-    bottom: 0;
-    border-radius: 50%;
-    opacity: 0;
-    mix-blend-mode: screen;
-    animation: rise linear infinite, flicker ease-in-out infinite;
-    z-index: -1;
-    pointer-events: none;
-}}
-
-.spark.long {{
-    width: 2px !important;
-    height: 10px !important;
-    background: linear-gradient(to top, rgba(255,255,255,0.7), rgba(255,255,255,0));
-    border-radius: 50%;
-}}
-
-@keyframes rise {{
-    0% {{
-        transform: translateY(0) translateX(0) scale(var(--scale)) rotate(0deg);
-        opacity: 1;
-        filter: blur(var(--blur));
-    }}
-    30% {{
-        opacity: 1;
-    }}
-    100% {{
-        transform: translateY(-120vh) translateX(var(--horizontal-shift)) scale(calc(var(--scale) * 0.5)) rotate(var(--rotation));
-        opacity: 0;
-        filter: blur(calc(var(--blur) + 1px));
-    }}
-}}
-
-@keyframes flicker {{
-    0%, 100% {{
-        opacity: 0.9;
-    }}
-    50% {{
-        opacity: 0.4;
-    }}
-}}
-
-/* UI Trading sobre as fagulhas */
-.stApp {{
-    background: transparent;
-    color: #e8eaed;
-    font-family: 'Inter', sans-serif;
-}}
-
-h1 {{
-    color: #4fc3f7;
-    font-weight: 600;
-    font-size: 2rem;
-    margin-bottom: 1rem;
-    text-align: center;
-    text-shadow: 0 0 10px rgba(79, 195, 247, 0.5);
-}}
-
-h2, h3 {{
-    color: #9e9e9e;
-    font-weight: 400;
-    font-size: 1.2rem;
-    margin: 1rem 0 0.5rem 0;
-}}
-
-/* Sidebar */
-.css-1d391kg {{
-    background: rgba(17, 17, 17, 0.95) !important;
-    border-right: 1px solid #333;
-    backdrop-filter: blur(15px);
-}}
-
-/* Colunas com EXATAMENTE a mesma cor da sidebar */
-.stColumn {{
-    background: rgba(17, 17, 17, 0.95) !important;
-    border: 1px solid #333 !important;
-    backdrop-filter: blur(15px) !important;
-    border-radius: 12px !important;
-    padding: 1.5rem !important;
-    margin: 0.5rem !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
-}}
-
-/* Inputs */
-.stSelectbox > div > div,
-.stTextInput > div > div > input,
-.stNumberInput > div > div > input {{
-    background: rgba(26, 26, 26, 0.95) !important;
-    border: 1px solid #333;
-    border-radius: 6px;
-    color: #e8eaed;
-}}
-
-/* Botões */
-.stButton > button {{
-    background: rgba(41, 182, 246, 0.95) !important;
-    border: none;
-    border-radius: 6px;
-    color: white;
-    font-weight: 500;
-    padding: 0.5rem 1rem;
-}}
-
-.stButton > button:hover {{
-    background: rgba(3, 169, 244, 0.95) !important;
-}}
-
-/* Alertas */
-[data-testid="stAlert"] {{
-    background: rgba(26, 26, 26, 0.95) !important;
-    border: 1px solid #333;
-    border-radius: 6px;
-}}
-
-/* Expander */
-.streamlit-expanderHeader {{
-    background: rgba(26, 26, 26, 0.95) !important;
-    border: 1px solid #333;
-    border-radius: 6px;
-}}
-
-{gerar_fagulhas(100)}
-</style>
-"""
-
-# 🔥 Inserindo CSS, som e fagulhas
-st.markdown(css, unsafe_allow_html=True)
-st.markdown(audio_html, unsafe_allow_html=True)
-spark_divs = "".join([f"<div class='spark {'long' if random.random() < 0.2 else ''}'></div>" for _ in range(100)])
-st.markdown(spark_divs, unsafe_allow_html=True)
-
 # --- Funções ---
 @st.cache_resource
 def get_google_auth():
@@ -484,40 +303,38 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
     return chart
 
 # --- Interface ---
-st.title("🔥 Trading Analytics")
+st.title("📊 Trading Analytics")
 
 # --- Sidebar ---
 with st.sidebar:
-    st.markdown("### ➕ Adicionar")
+    st.header("Operações")
     
-    with st.form("nova_operacao"):
-        ativo = st.selectbox("Ativo", ["WDOFUT", "WINFUT"])
-        data_abertura = st.date_input("Data", value=date.today())
-        quantidade = st.number_input("Contratos", min_value=1, value=1)
-        tipo_operacao = st.selectbox("Tipo", ["Compra", "Venda"])
-        resultado_input = st.text_input("Resultado", value="0,00")
-        
-        try:
-            # Substitui vírgula por ponto para conversão
-            resultado_valor = float(resultado_input.replace(',', '.'))
-        except ValueError:
-            st.error("Valor inválido. Use números com vírgula decimal.")
-            resultado_valor = 0.0
+    with st.expander("➕ Adicionar Nova Operação", expanded=True):
+        with st.form("nova_operacao"):
+            ativo = st.selectbox("Ativo", ["WDOFUT", "WINFUT"])
+            data_abertura = st.date_input("Data", value=date.today())
+            quantidade = st.number_input("Contratos", min_value=1, value=1)
+            tipo_operacao = st.selectbox("Tipo", ["Compra", "Venda"])
+            resultado_input = st.text_input("Resultado", value="0,00")
+            
+            try:
+                resultado_valor = float(resultado_input.replace(',', '.'))
+            except ValueError:
+                st.error("Valor inválido. Use números com vírgula decimal.")
+                resultado_valor = 0.0
 
-        submitted = st.form_submit_button("✅ Adicionar")
-        
-        if submitted:
-            if add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultado_valor):
-                temp_success = st.empty()
-                temp_success.success("✅ Trade adicionado!")
-                st.cache_data.clear()
-                time.sleep(1.5)
-                temp_success.empty()
-                st.rerun()
-            else:
-                st.error("❌ Erro ao adicionar")
+            submitted = st.form_submit_button("✅ Adicionar")
+            
+            if submitted:
+                if add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultado_valor):
+                    st.success("✅ Trade adicionado!")
+                    st.cache_data.clear()
+                    time.sleep(1.5)
+                    st.rerun()
+                else:
+                    st.error("❌ Erro ao adicionar")
 
-    st.markdown("### 🔎 Período")
+    st.header("Filtros")
     
     df = load_data()
     
@@ -525,14 +342,14 @@ with st.sidebar:
         data_min = df['ABERTURA'].min().date()
         data_max = df['ABERTURA'].max().date()
         data_inicial, data_final = st.date_input(
-            "Intervalo", value=(data_min, data_max),
+            "Intervalo de Datas", value=(data_min, data_max),
             min_value=data_min, max_value=data_max
         )
         df_filtrado = df[(df['ABERTURA'].dt.date >= data_inicial) & (df['ABERTURA'].dt.date <= data_final)]
     else:
         df_filtrado = df.copy()
 
-    st.markdown("### 📊 Resumo")
+    st.header("Resumo por Ativo")
     if not df_filtrado.empty:
         resumo_ativo = df_filtrado.groupby('ATIVO').agg({
             'RESULTADO_LIQUIDO': ['count', 'sum', 'mean']
@@ -543,9 +360,9 @@ with st.sidebar:
 
 # --- Corpo Principal ---
 if df.empty:
-    st.info("🔥 Adicione operações para começar")
+    st.info("ℹ️ Adicione operações para começar")
 else:
-    with st.expander("📋 Ver todas as operações"):
+    with st.expander("📋 Ver Todas as Operações", expanded=False):
         st.dataframe(df, use_container_width=True)
 
     if 'RESULTADO_LIQUIDO' in df_filtrado.columns and 'ABERTURA' in df_filtrado.columns:
@@ -562,113 +379,66 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # --- CORREÇÃO DAS MÉTRICAS ---
-        # Adicionamos um CSS específico para corrigir o layout
-        st.markdown("""
-        <style>
-            /* Garante que as colunas fiquem lado a lado */
-            div[data-testid="column"] {
-                display: flex !important;
-                flex-direction: row !important;
-                gap: 15px !important;
-            }
-            
-            /* Estilização das métricas individuais */
-            div[data-testid="stMetric"] {
-                flex: 1 !important;
-                min-width: 0 !important;
-                margin: 0 !important;
-                padding: 15px !important;
-                background: rgba(26, 26, 26, 0.85) !important;
-                border-radius: 10px !important;
-                border: 1px solid #333 !important;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
-                transition: all 0.3s ease !important;
-            }
-            
-            div[data-testid="stMetric"]:hover {
-                transform: translateY(-5px) !important;
-                box-shadow: 0 6px 20px rgba(79, 195, 247, 0.3) !important;
-                border-color: #4fc3f7 !important;
-            }
-            
-            /* Estilo do valor da métrica */
-            [data-testid="stMetricValue"] {
-                font-size: 1.7rem !important;
-                color: #e8eaed !important;
-                font-weight: 600 !important;
-                text-shadow: 0 0 8px rgba(79, 195, 247, 0.4) !important;
-            }
-            
-            /* Estilo do rótulo da métrica */
-            [data-testid="stMetricLabel"] {
-                font-size: 0.9rem !important;
-                color: #9e9e9e !important;
-                margin-bottom: 5px !important;
-            }
-        </style>
-        """, unsafe_allow_html=True)
-
-        # Criamos as 4 colunas
+        # --- Métricas ---
         col1, col2, col3, col4 = st.columns(4)
-
+        
         with col1:
             st.metric(
                 label="💰 Total", 
-                value=formatar_moeda(valor_total)
+                value=formatar_moeda(valor_total),
+                delta=None
             )
-
+        
         with col2:
             st.metric(
                 label="📈 Média por Trade", 
-                value=formatar_moeda(media_resultado)
+                value=formatar_moeda(media_resultado),
+                delta=None
             )
-
+        
         with col3:
             st.metric(
                 label="🎯 Total de Trades", 
-                value=f"{total_trades}"
+                value=f"{total_trades}",
+                delta=None
             )
-
+        
         with col4:
             st.metric(
                 label="✅ Taxa de Acerto", 
-                value=f"{taxa_acerto:.0f}%"
+                value=f"{taxa_acerto:.0f}%",
+                delta=None
             )
 
-        # GRÁFICOS EM COLUNAS
-        st.markdown("### 🔥 Atividade Anual")
-        col_heatmap = st.columns(1)[0]
-        with col_heatmap:
-            df_heatmap = df.copy()
-            if not df_heatmap.empty and 'ABERTURA' in df_heatmap.columns:
-                df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
-                df_heatmap_grouped = df_heatmap.groupby('Data')['RESULTADO_LIQUIDO'].sum().reset_index()
-                
-                ano_atual = datetime.now().year
-                data_inicio = pd.Timestamp(f'{ano_atual}-01-01').date()
-                data_fim = pd.Timestamp(f'{ano_atual}-12-31').date()
-                
-                date_range = pd.date_range(start=data_inicio, end=data_fim, freq='D')
-                df_complete = pd.DataFrame({'Data': date_range.date})
-                df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
-                df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
-                
-                heatmap_2d_github = create_heatmap_2d_github(df_heatmap_final)
-                if heatmap_2d_github:
-                    st.altair_chart(heatmap_2d_github, use_container_width=True)
+        # --- Gráficos ---
+        st.subheader("🔥 Atividade Anual")
+        df_heatmap = df.copy()
+        if not df_heatmap.empty and 'ABERTURA' in df_heatmap.columns:
+            df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
+            df_heatmap_grouped = df_heatmap.groupby('Data')['RESULTADO_LIQUIDO'].sum().reset_index()
+            
+            ano_atual = datetime.now().year
+            data_inicio = pd.Timestamp(f'{ano_atual}-01-01').date()
+            data_fim = pd.Timestamp(f'{ano_atual}-12-31').date()
+            
+            date_range = pd.date_range(start=data_inicio, end=data_fim, freq='D')
+            df_complete = pd.DataFrame({'Data': date_range.date})
+            df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
+            df_heatmap_final['RESULTADO_LIQUIDO'] = df_heatmap_final['RESULTADO_LIQUIDO'].fillna(0)
+            
+            heatmap_2d_github = create_heatmap_2d_github(df_heatmap_final)
+            if heatmap_2d_github:
+                st.altair_chart(heatmap_2d_github, use_container_width=True)
         
-        st.markdown("### 📊 Evolução Acumulada")
-        col_evolution = st.columns(1)[0]
-        with col_evolution:
-            if not df_por_dia.empty:
-                df_area = df_por_dia.copy().sort_values('Data')
-                df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
-                evolution_chart = create_evolution_chart_with_gradient(df_area)
-                st.altair_chart(evolution_chart, use_container_width=True)
+        st.subheader("📊 Evolução Acumulada")
+        if not df_por_dia.empty:
+            df_area = df_por_dia.copy().sort_values('Data')
+            df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
+            evolution_chart = create_evolution_chart_with_gradient(df_area)
+            st.altair_chart(evolution_chart, use_container_width=True)
 
-        # LAYOUT: HISTOGRAMA (2/3) + RADIAL (1/3)
-        st.markdown("### 🎯 Resultados por Trade")
+        # --- Resultados por Trade ---
+        st.subheader("🎯 Resultados por Trade")
         col_trades, col_radial = st.columns([2, 1])
         
         with col_trades:
@@ -707,14 +477,12 @@ else:
                 st.altair_chart(chart_final, use_container_width=True)
         
         with col_radial:
-            st.markdown("#### Distribuição")
+            st.subheader("Distribuição")
             radial_chart = create_radial_chart(trades_ganhadores, trades_perdedores)
             if radial_chart:
                 st.altair_chart(radial_chart, use_container_width=True)
+            else:
+                st.info("Sem dados suficientes para exibir o gráfico radial")
 
 # Rodapé
-st.markdown("""
-<div style="text-align:center;color:#666;font-size:0.8rem;margin-top:2rem;padding:1rem;border-top:1px solid #333;background:rgba(0,0,0,0.8);">
-    🔥 Trading Analytics • 2025 • Fagulhas 3D + Som ambiente
-</div>
-""", unsafe_allow_html=True)
+st.caption("📊 Trading Analytics • 2025 • Desenvolvido com Streamlit")
