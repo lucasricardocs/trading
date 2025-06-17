@@ -532,7 +532,7 @@ with st.sidebar:
         }).round(0)
         resumo_ativo.columns = ['Trades', 'Total', 'Média']
         resumo_ativo = resumo_ativo.reset_index()
-        st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
+        st.dataframe(resumo_ativo, use_container_width=False, hide_index=True)
 
 # --- Corpo Principal ---
 if df.empty:
