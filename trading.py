@@ -165,9 +165,11 @@ h2, h3 {{
     background: transparent !important;
     border: none !important;
     border-radius: 0 !important;
-    padding: 0.5rem 0 !important;
+    padding: 0.5rem !important;
     backdrop-filter: none !important;
     box-shadow: none !important;
+    display: inline-block !important;
+    width: 100% !important;
 }}
 
 [data-testid="stMetricLabel"] > div {{
