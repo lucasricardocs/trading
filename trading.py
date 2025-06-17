@@ -14,7 +14,7 @@ import time
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*observed=False.*")
 
 # --- Configurações Globais e Constantes ---
-SPREADSHEET_ID = "16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM" # ID da sua planilha
+SPREADSHEET_ID = "16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM"
 WORKSHEET_NAME = "dados"
 
 # --- Configuração da Página e CSS Customizado (Tema Escuro) ---
@@ -112,70 +112,93 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Função para autenticar e carregar dados da planilha
+# --- Funções de Autenticação e Acesso ao Google Sheets (Estrutura Melhorada) ---
 @st.cache_resource
-def get_gspread_client():
+def get_google_auth():
+    """Autoriza o acesso ao Google Sheets e retorna o cliente gspread."""
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
+              'https://www.googleapis.com/auth/drive']
     try:
-        creds_dict = st.secrets["gcp_service_account"]
-        creds = Credentials.from_service_account_info(creds_dict)
+        if "google_credentials" not in st.secrets:
+            st.error("Credenciais do Google ('google_credentials') não encontradas em st.secrets. Configure o arquivo .streamlit/secrets.toml")
+            return None
+        
+        credentials_dict = st.secrets["google_credentials"]
+        if not credentials_dict:
+            st.error("As credenciais do Google em st.secrets estão vazias.")
+            return None
+            
+        creds = Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
         gc = gspread.authorize(creds)
         return gc
     except Exception as e:
-        st.error(f"Erro na autenticação com Google Sheets. Verifique suas credenciais em .streamlit/secrets.toml: {e}")
+        st.error(f"Erro de autenticação com Google: {e}")
         return None
 
-@st.cache_data(ttl=60)  # Cache por 1 minuto
+@st.cache_resource
+def get_worksheet():
+    """Retorna o objeto worksheet da planilha especificada."""
+    gc = get_google_auth()
+    if gc:
+        try:
+            spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+            worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
+            return worksheet
+        except SpreadsheetNotFound:
+            st.error(f"Planilha com ID '{SPREADSHEET_ID}' não encontrada.")
+            return None
+        except Exception as e:
+            st.error(f"Erro ao acessar a planilha '{WORKSHEET_NAME}': {e}")
+            return None
+    return None
+
+@st.cache_data(ttl=60)
 def load_data():
-    try:
-        gc = get_gspread_client()
-        if gc is None:
-            return pd.DataFrame()
-        
-        sh = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = sh.worksheet(WORKSHEET_NAME)
-        data = worksheet.get_all_records()
-        df = pd.DataFrame(data)
-        
-        if not df.empty:
+    """Lê todos os registros da planilha de trading e retorna como DataFrame."""
+    worksheet = get_worksheet()
+    if worksheet:
+        try:
+            rows = worksheet.get_all_records()
+            if not rows:
+                st.info("A planilha de trading está vazia.")
+                return pd.DataFrame()
+
+            df = pd.DataFrame(rows)
+            
+            # Processamento das colunas
             if 'ABERTURA' in df.columns:
                 df['ABERTURA'] = pd.to_datetime(df['ABERTURA'], errors='coerce')
+            
             if 'RESULTADO' in df.columns:
-                # Converter para string para lidar com vírgulas, depois para float
                 df['RESULTADO'] = df['RESULTADO'].astype(str).str.replace(',', '.', regex=False)
-                df['RESULTADO'] = pd.to_numeric(df['RESULTADO'], errors='coerce')
+                df['RESULTADO'] = pd.to_numeric(df['RESULTADO'], errors='coerce').fillna(0)
+            
             if 'QUANTIDADE' in df.columns:
-                df['QUANTIDADE'] = pd.to_numeric(df['QUANTIDADE'], errors='coerce')
-        
-        return df
-    except SpreadsheetNotFound:
-        st.error(f"Planilha com ID {SPREADSHEET_ID} ou worksheet '{WORKSHEET_NAME}' não encontrada. Verifique o ID, o nome da worksheet ou as permissões.")
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Erro ao carregar dados da planilha: {e}")
-        return pd.DataFrame()
+                df['QUANTIDADE'] = pd.to_numeric(df['QUANTIDADE'], errors='coerce').fillna(0)
+
+            return df
+        except Exception as e:
+            st.error(f"Erro ao ler dados da planilha: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 def add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultado):
-    try:
-        gc = get_gspread_client()
-        if gc is None:
+    """Adiciona uma nova operação à planilha."""
+    worksheet = get_worksheet()
+    if worksheet:
+        try:
+            resultado_str = str(resultado).replace(',', '.')
+            worksheet.append_row([ativo, data_abertura.strftime('%Y-%m-%d'), quantidade, tipo_operacao, resultado_str])
+            return True
+        except Exception as e:
+            st.error(f"Erro ao adicionar dados na planilha: {e}")
             return False
-        
-        sh = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = sh.worksheet(WORKSHEET_NAME)
-        
-        # Converter resultado para string com ponto antes de enviar para o Google Sheets
-        resultado_str = str(resultado).replace(',', '.')
-        
-        worksheet.append_row([ativo, data_abertura.strftime('%Y-%m-%d'), quantidade, tipo_operacao, resultado_str])
-        return True
-    except Exception as e:
-        st.error(f"Erro ao adicionar dados na planilha: {e}")
-        return False
+    return False
 
-# Título da aplicação
+# --- Interface Principal ---
 st.title("📈 Análise de Operações de Trading")
 
-# Sidebar para entrada de dados
+# --- Sidebar: Entrada de Dados ---
 with st.sidebar:
     st.header("➕ Nova Operação")
     
@@ -185,30 +208,29 @@ with st.sidebar:
         quantidade = st.number_input("Quantidade de Contratos", min_value=1, value=1)
         tipo_operacao = st.selectbox("Tipo", ["Compra", "Venda"])
         
-        # Campo de resultado com formato de vírgula e dica para esvaziar
-        resultado_input = st.text_input("Resultado em R$", value="0,00", help="Use vírgula como separador decimal. Apague para inserir novo valor.")
+        resultado_input = st.text_input("Resultado em R$", value="0,00", 
+                                      help="Use vírgula como separador decimal.")
         
-        # Tentar converter para float, lidando com vírgula
         try:
             resultado = float(resultado_input.replace(',', '.'))
         except ValueError:
-            st.error("Por favor, insira um valor numérico válido para o Resultado (use vírgula para decimais).")
-            resultado = 0.0 # Valor padrão em caso de erro
+            st.error("Por favor, insira um valor numérico válido para o Resultado.")
+            resultado = 0.0
 
         submitted = st.form_submit_button("Adicionar Operação")
         
         if submitted:
             if add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultado):
                 st.success("Operação adicionada com sucesso!")
-                st.cache_data.clear()  # Limpar cache para recarregar dados
+                st.cache_data.clear()
                 st.rerun()
             else:
                 st.error("Erro ao adicionar operação")
 
-# Carregar e exibir dados
+# --- Carregar Dados ---
 df = load_data()
 
-# Filtro por período (datas) na sidebar acima das métricas
+# --- Sidebar: Filtros e Resumos ---
 with st.sidebar:
     st.header("🔎 Filtro de Período")
     if not df.empty and 'ABERTURA' in df.columns:
@@ -224,29 +246,28 @@ with st.sidebar:
     else:
         df_filtrado = df.copy()
 
-    # Resumo por ativo em tabela lateral
     st.header("📊 Resumo por Ativo")
     if not df_filtrado.empty:
         resumo_ativo = df_filtrado.groupby('ATIVO')['RESULTADO'].agg(['count', 'sum', 'mean']).reset_index()
         resumo_ativo.columns = ['Ativo', 'Nº Trades', 'Total (R$)', 'Média (R$)']
         st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
 
+# --- Corpo Principal ---
 if df.empty:
     st.info("📊 Nenhuma operação encontrada. Adicione sua primeira operação usando o formulário na barra lateral.")
 else:
     st.success(f"✅ {len(df)} operações carregadas com sucesso!")
     
-    # Exibir dados em uma tabela expansível
     with st.expander("📋 Ver todas as operações"):
         st.dataframe(df, use_container_width=True)
 
-    # Métricas e análises (usando dados filtrados)
+    # --- Métricas e Análises ---
     if 'RESULTADO' in df_filtrado.columns and 'ABERTURA' in df_filtrado.columns:
         # Calcular métricas
         valor_total = df_filtrado['RESULTADO'].sum()
         media_resultado = df_filtrado['RESULTADO'].mean()
         
-        # Agrupar por data para encontrar melhor e pior dia
+        # Agrupar por data
         df_por_dia = df_filtrado.groupby(df_filtrado['ABERTURA'].dt.date)['RESULTADO'].sum().reset_index()
         df_por_dia.columns = ['Data', 'Resultado_Dia']
         
@@ -256,13 +277,13 @@ else:
         else:
             melhor_dia = pior_dia = {'Data': None, 'Resultado_Dia': 0}
         
-        # Calcular outras métricas
+        # Outras métricas
         total_trades = len(df_filtrado)
         trades_ganhadores = len(df_filtrado[df_filtrado['RESULTADO'] > 0])
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # Exibir métricas em colunas
+        # Exibir métricas
         st.header("📊 Resumo das Operações")
         
         col1, col2, col3, col4 = st.columns(4)
@@ -328,17 +349,16 @@ else:
                 delta="Individual"
             )
 
+        # --- Visualizações ---
         st.header("📈 Visualizações")
         
         # 1. Heatmap estilo GitHub (anualizado, NÃO sofre filtro)
         st.subheader("🔥 Heatmap de Resultados Diários (Ano Completo)")
         
-        # Preparar dados para o heatmap (usando df completo, não filtrado)
         df_heatmap = df.copy()
         df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
         df_heatmap_grouped = df_heatmap.groupby('Data')['RESULTADO'].sum().reset_index()
         
-        # Criar range de datas completo
         if not df_heatmap_grouped.empty:
             date_range = pd.date_range(
                 start=df_heatmap_grouped['Data'].min(),
@@ -346,17 +366,10 @@ else:
                 freq='D'
             )
             
-            # Criar DataFrame completo com todas as datas
             df_complete = pd.DataFrame({'Data': date_range.date})
             df_heatmap_final = df_complete.merge(df_heatmap_grouped, on='Data', how='left')
             df_heatmap_final['RESULTADO'] = df_heatmap_final['RESULTADO'].fillna(0)
             
-            # Adicionar informações para o heatmap
-            df_heatmap_final['Ano'] = pd.to_datetime(df_heatmap_final['Data']).dt.year
-            df_heatmap_final['Semana'] = pd.to_datetime(df_heatmap_final['Data']).dt.isocalendar().week
-            df_heatmap_final['DiaSemana'] = pd.to_datetime(df_heatmap_final['Data']).dt.dayofweek
-            
-            # Criar heatmap
             heatmap = alt.Chart(df_heatmap_final).mark_rect().encode(
                 x=alt.X('week(Data):O', title='Semana do Ano'),
                 y=alt.Y('day(Data):O', title='Dia da Semana'),
@@ -377,13 +390,11 @@ else:
             
             st.altair_chart(heatmap, use_container_width=True)
         
-        # 2. Gráfico de área com gradiente (filtro de datas)
+        # 2. Gráfico de área acumulada
         st.subheader("📊 Evolução Acumulada dos Resultados")
         
         if not df_por_dia.empty:
-            # Calcular resultado acumulado
-            df_area = df_por_dia.copy()
-            df_area = df_area.sort_values('Data')
+            df_area = df_por_dia.copy().sort_values('Data')
             df_area['Resultado_Acumulado'] = df_area['Resultado_Dia'].cumsum()
             
             area_chart = alt.Chart(df_area).mark_area(
@@ -391,7 +402,7 @@ else:
                 color=alt.Gradient(
                     gradient='linear',
                     stops=[
-                        alt.GradientStop(color='#2a2a2a', offset=0), # Cor de fundo escura
+                        alt.GradientStop(color='#2a2a2a', offset=0),
                         alt.GradientStop(color='#1a9850', offset=1)
                     ],
                     x1=1, x2=1, y1=1, y2=0
@@ -408,7 +419,7 @@ else:
             
             st.altair_chart(area_chart, use_container_width=True)
 
-        # 3. Gráfico de barras da evolução diária (filtro de datas)
+        # 3. Gráfico de barras diário
         st.subheader("📅 Evolução Diária dos Resultados")
         if not df_por_dia.empty:
             bar_chart = alt.Chart(df_por_dia).mark_bar().encode(
@@ -427,13 +438,12 @@ else:
             ).interactive()
             st.altair_chart(bar_chart, use_container_width=True)
         
-        # 4. Histograma e gráfico radial lado a lado (filtro de datas)
+        # 4. Histograma e gráfico radial
         st.subheader("📈 Distribuição de Resultados e Performance")
         
         col_hist, col_radial = st.columns([2, 1])
         
         with col_hist:
-            # Histograma de resultados
             hist_data = df_filtrado.copy()
             hist_data['Cor'] = hist_data['RESULTADO'].apply(lambda x: 'Ganho' if x > 0 else 'Perda' if x < 0 else 'Neutro')
             
@@ -444,7 +454,7 @@ else:
                     'Cor:N',
                     scale=alt.Scale(
                         domain=['Perda', 'Neutro', 'Ganho'],
-                        range=['#d73027', '#cccccc', '#1a9850'] # Cinza para neutro
+                        range=['#d73027', '#cccccc', '#1a9850']
                     ),
                     title='Tipo'
                 ),
@@ -458,7 +468,6 @@ else:
             st.altair_chart(histogram, use_container_width=True)
         
         with col_radial:
-            # Gráfico de pizza para trades ganhadores vs perdedores
             pizza_data = pd.DataFrame({
                 'Tipo': ['Ganhadores', 'Perdedores'],
                 'Quantidade': [trades_ganhadores, trades_perdedores],
