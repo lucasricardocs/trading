@@ -387,7 +387,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap com dias da semana completos e cores corretas"""
+    """Heatmap com dias da semana completos e cores corretas - CORRIGIDO"""
     if df_heatmap_final.empty:
         return None
     
@@ -421,6 +421,19 @@ def create_heatmap_2d_github(df_heatmap_final):
     full_df['month_name'] = full_df['Data_dt'].dt.strftime('%b')
     full_df['week_corrected'] = ((full_df['Data_dt'] - start_date).dt.days // 7)
     
+    # CORREÇÃO: Criar coluna de categoria para cores
+    def get_color_category(row):
+        if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
+            return 'fora_ano'
+        elif row['display_resultado'] == 0:
+            return 'vazio'
+        elif row['display_resultado'] > 0:
+            return 'positivo'
+        else:
+            return 'negativo'
+    
+    full_df['color_category'] = full_df.apply(get_color_category, axis=1)
+    
     month_labels = full_df[full_df['is_current_year']].groupby('month').agg(
         week_corrected=('week_corrected', 'min'),
         month_name=('month_name', 'first')
@@ -434,12 +447,7 @@ def create_heatmap_2d_github(df_heatmap_final):
         text='month_name:N'
     )
 
-    valores = full_df[full_df['is_current_year']]['RESULTADO_LIQUIDO']
-    max_positivo = valores[valores > 0].max() if len(valores[valores > 0]) > 0 else 100
-    max_negativo = valores[valores < 0].min() if len(valores[valores < 0]) > 0 else -100
-    threshold_2 = max_positivo * 0.5
-    threshold_3 = max_positivo * 0.75
-
+    # CORREÇÃO: Usar escala de cores simples
     heatmap = alt.Chart(full_df).mark_rect(
         stroke='white',  # STROKE BRANCO
         strokeWidth=2,   # ESPAÇAMENTO ENTRE BLOCOS
@@ -449,17 +457,12 @@ def create_heatmap_2d_github(df_heatmap_final):
         y=alt.Y('day_display_name:N', sort=day_display_names, title=None,
                 axis=alt.Axis(labelAngle=0, labelFontSize=9, ticks=False, 
                              domain=False, grid=False, labelColor='#999', labelPadding=8)),
-        color=alt.condition(
-            alt.datum.display_resultado == None, alt.value('#222'),
-            alt.condition(
-                alt.datum.display_resultado == 0, alt.value('#cccccc'),  # CINZA CLARO para dias vazios
-                alt.condition(
-                    alt.datum.display_resultado > 0,
-                    alt.value('#28a745'),  # VERDE para positivos
-                    alt.value('#dc3545')   # VERMELHO para negativos
-                )
-            )
-        ),
+        color=alt.Color('color_category:N',
+                       scale=alt.Scale(
+                           domain=['fora_ano', 'vazio', 'positivo', 'negativo'],
+                           range=['#222', '#cccccc', '#28a745', '#dc3545']
+                       ),
+                       legend=None),
         tooltip=[
             alt.Tooltip('Data:T', title='Data', format='%d/%m'),
             alt.Tooltip('RESULTADO_LIQUIDO:Q', title='R$', format=',.0f')
