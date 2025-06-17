@@ -22,7 +22,7 @@ WORKSHEET_NAME = "dados"
 st.set_page_config(
     page_title="Trading Analytics",
     page_icon="📊",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
@@ -37,14 +37,14 @@ audio_html = """
 """
 
 # 🔥 Função para gerar CSS das fagulhas
-def gerar_fagulhas(qtd=10):
+def gerar_fagulhas(qtd=100):
     fagulhas = ""
     for i in range(qtd):
-        left = random.randint(0, 10)
+        left = random.randint(0, 100)
         size = random.uniform(3, 6)
         duration = random.uniform(5, 9)
         delay = random.uniform(0, 8)
-        shift = random.randint(-10, 10)
+        shift = random.randint(-100, 100)
         rotation = random.randint(-180, 180)
         scale = random.uniform(0.6, 1.5)
         blur = max(0.5, (2.0 - scale))
@@ -157,54 +157,6 @@ h2, h3 {{
     padding: 1.5rem !important;
     margin: 0.5rem !important;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
-}}
-
-/* --- NOVO CSS PARA MÉTRICAS --- */
-/* Container das métricas */
-.metric-container {{
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 1.5rem;
-    gap: 15px;
-}}
-
-/* Estilização individual das métricas */
-.stMetric {{
-    background: rgba(26, 26, 26, 0.85) !important;
-    border-radius: 10px !important;
-    padding: 15px !important;
-    flex: 1;
-    text-align: center;
-    border: 1px solid #333 !important;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
-    transition: all 0.3s ease !important;
-}}
-
-.stMetric:hover {{
-    transform: translateY(-5px) !important;
-    box-shadow: 0 6px 20px rgba(79, 195, 247, 0.3) !important;
-    border-color: #4fc3f7 !important;
-}}
-
-[data-testid="stMetricLabel"] {{
-    font-size: 0.9rem !important;
-    color: #9e9e9e !important;
-    margin-bottom: 5px !important;
-}}
-
-[data-testid="stMetricValue"] {{
-    font-size: 1.7rem !important;
-    color: #e8eaed !important;
-    font-weight: 600 !important;
-    text-shadow: 0 0 8px rgba(79, 195, 247, 0.4) !important;
-}}
-
-.stMetric .positive {{
-    color: #28a745 !important;
-}}
-
-.stMetric .negative {{
-    color: #dc3545 !important;
 }}
 
 /* Inputs */
@@ -610,44 +562,79 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # --- MÉTRICAS LADO A LADO ---
-        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-        
+        # --- CORREÇÃO DAS MÉTRICAS ---
+        # Adicionamos um CSS específico para corrigir o layout
+        st.markdown("""
+        <style>
+            /* Garante que as colunas fiquem lado a lado */
+            div[data-testid="column"] {
+                display: flex !important;
+                flex-direction: row !important;
+                gap: 15px !important;
+            }
+            
+            /* Estilização das métricas individuais */
+            div[data-testid="stMetric"] {
+                flex: 1 !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                padding: 15px !important;
+                background: rgba(26, 26, 26, 0.85) !important;
+                border-radius: 10px !important;
+                border: 1px solid #333 !important;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+                transition: all 0.3s ease !important;
+            }
+            
+            div[data-testid="stMetric"]:hover {
+                transform: translateY(-5px) !important;
+                box-shadow: 0 6px 20px rgba(79, 195, 247, 0.3) !important;
+                border-color: #4fc3f7 !important;
+            }
+            
+            /* Estilo do valor da métrica */
+            [data-testid="stMetricValue"] {
+                font-size: 1.7rem !important;
+                color: #e8eaed !important;
+                font-weight: 600 !important;
+                text-shadow: 0 0 8px rgba(79, 195, 247, 0.4) !important;
+            }
+            
+            /* Estilo do rótulo da métrica */
+            [data-testid="stMetricLabel"] {
+                font-size: 0.9rem !important;
+                color: #9e9e9e !important;
+                margin-bottom: 5px !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Criamos as 4 colunas
         col1, col2, col3, col4 = st.columns(4)
-        
+
         with col1:
-            # 💰 Total
             st.metric(
                 label="💰 Total", 
-                value=formatar_moeda(valor_total),
-                delta=None
+                value=formatar_moeda(valor_total)
             )
-        
+
         with col2:
-            # 📈 Média
             st.metric(
                 label="📈 Média por Trade", 
-                value=formatar_moeda(media_resultado),
-                delta=None
+                value=formatar_moeda(media_resultado)
             )
-        
+
         with col3:
-            # 🎯 Trades
             st.metric(
                 label="🎯 Total de Trades", 
-                value=f"{total_trades}",
-                delta=None
+                value=f"{total_trades}"
             )
-        
+
         with col4:
-            # ✅ Acerto
             st.metric(
                 label="✅ Taxa de Acerto", 
-                value=f"{taxa_acerto:.0f}%",
-                delta=None
+                value=f"{taxa_acerto:.0f}%"
             )
-        
-        st.markdown('</div>', unsafe_allow_html=True)
 
         # GRÁFICOS EM COLUNAS
         st.markdown("### 🔥 Atividade Anual")
