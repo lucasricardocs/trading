@@ -37,7 +37,7 @@ audio_html = """
 """
 
 # 🔥 Função para gerar CSS das fagulhas
-def gerar_fagulhas(qtd=100):
+def gerar_fagulhas(qtd=10):
     fagulhas = ""
     for i in range(qtd):
         left = random.randint(0, 100)
