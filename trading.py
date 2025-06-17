@@ -715,7 +715,8 @@ else:
             # Heatmap 3D compacto com ângulo de 45 graus
             heatmap_3d_buffer = create_3d_heatmap(df_heatmap_final)
             if heatmap_3d_buffer:
-                st.image(heatmap_3d_buffer, use_column_width=True)
+                st.image(heatmap_3d_buffer, use_container_width=True)  # CORRIGIDO
+
             
             # Heatmap 2D estilo GitHub sem legendas
             heatmap_2d_github = create_heatmap_2d_github(df_heatmap_final)
