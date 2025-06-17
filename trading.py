@@ -68,13 +68,19 @@ def gerar_fagulhas(qtd=100):
     return fagulhas
 
 # CSS Minimalista para Colunas
+# CSS com gradiente escuro sem transparência
 css = f"""
 <style>
-/* Background e fagulhas */
-body {{
-    background-color: #000000;
-    overflow-x: hidden;
+.stColumn {{
+    background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3a 100%) !important;
+    border-radius: 12px !important;
+    padding: 1.5rem !important;
+    margin: 0.5rem !important;
+    border: 1px solid #404040 !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
 }}
+</style>
+"""
 
 .spark {{
     position: fixed;
@@ -211,7 +217,7 @@ h2, h3 {{
     background: rgba(26, 26, 26, 0.3) !important;
     border-radius: 12px !important;
     padding: 1rem !important;
-    margin: 0.5rem !important;
+    margin: 0.1rem !important;
 }}
 
 {gerar_fagulhas(100)}
