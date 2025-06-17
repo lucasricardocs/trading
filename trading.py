@@ -71,13 +71,10 @@ def gerar_fagulhas(qtd=100):
 # CSS com gradiente escuro sem transparência
 css = f"""
 <style>
-.stColumn {{
-    background: #1a1a1a !important;  /* Cor sólida sem transparência */
-    border-radius: 12px !important;
-    padding: 1.5rem !important;
-    margin: 0.5rem !important;
-    border: 1px solid #404040 !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+/* Background e fagulhas */
+body {{
+    background-color: #000000;
+    overflow-x: hidden;
 }}
 
 .spark {{
