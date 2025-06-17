@@ -9,6 +9,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import io
 import time
 import threading
+import calendar
 from datetime import datetime, timedelta, date
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import SpreadsheetNotFound
@@ -215,68 +216,80 @@ def add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultad
     return False
 
 def create_3d_heatmap(df_heatmap_final):
-    """Cria um heatmap 3D dos resultados de trading com design consistente."""
+    """Cria um heatmap 3D dos resultados de trading baseado no exemplo fornecido."""
     
     # Preparar dados para o gráfico 3D
     df_3d = df_heatmap_final.copy()
-    df_3d = df_3d[df_3d['RESULTADO_LIQUIDO'] != 0]  # Remover dias sem trades
     
-    if df_3d.empty:
+    # Filtrar apenas dias com operações (resultado != 0)
+    df_com_trades = df_3d[df_3d['RESULTADO_LIQUIDO'] != 0]
+    
+    if df_com_trades.empty:
         return None
     
     # Configurar matplotlib para tema escuro
     plt.style.use('dark_background')
     
-    # Criar figura 3D
-    fig = plt.figure(figsize=(16, 10))
+    # Mapear dados seguindo a estrutura do exemplo
+    datas = pd.to_datetime(df_com_trades['Data'])
+    semanas = datas.isocalendar().week.values
+    dias_semana = datas.weekday.values  # 0=Segunda, 6=Domingo
+    resultados = df_com_trades['RESULTADO_LIQUIDO'].values
+    
+    # Corrigir semanas para o início (seguindo o exemplo)
+    semanas = (semanas - semanas.min())
+    
+    # Criar figura (mesmo tamanho do exemplo)
+    fig = plt.figure(figsize=(14, 7))
     ax = fig.add_subplot(111, projection='3d')
     
-    # Preparar dados
-    x = df_3d['Semana_Ajustada']
-    y = df_3d['DiaSemana']
+    # Coordenadas (seguindo exatamente o exemplo)
+    x = semanas
+    y = dias_semana
     z = np.zeros_like(x)
+    
+    # Tamanho das barras (mesmo do exemplo)
     dx = dy = 0.8
-    dz = np.abs(df_3d['RESULTADO_LIQUIDO'])  # Altura baseada no valor absoluto
+    dz = np.abs(resultados)  # Altura baseada no valor absoluto
     
-    # Definir cores baseadas no resultado (MESMO ESQUEMA DO 2D)
-    valor_max = abs(df_heatmap_final['RESULTADO_LIQUIDO']).max()
-    colors = []
-    for resultado in df_3d['RESULTADO_LIQUIDO']:
+    # Definir cores baseadas no resultado (adaptado para trading)
+    # Usar verde para positivos e vermelho para negativos
+    cores = []
+    for resultado in resultados:
         if resultado > 0:
-            # Verde escuro (#1a9850) - mesmo do heatmap 2D
-            intensity = min(resultado / valor_max, 1.0) if valor_max > 0 else 0.5
-            colors.append((0.1, 0.6 * intensity + 0.4, 0.31, 0.8))  # Verde escuro
+            # Verde com intensidade baseada no valor
+            intensity = min(abs(resultado) / np.max(np.abs(resultados)), 1.0)
+            cores.append(plt.cm.Greens(0.3 + 0.7 * intensity))
         else:
-            # Vermelho escuro (#d73027) - mesmo do heatmap 2D
-            intensity = min(abs(resultado) / valor_max, 1.0) if valor_max > 0 else 0.5
-            colors.append((0.84 * intensity + 0.16, 0.19, 0.15, 0.8))  # Vermelho escuro
+            # Vermelho com intensidade baseada no valor
+            intensity = min(abs(resultado) / np.max(np.abs(resultados)), 1.0)
+            cores.append(plt.cm.Reds(0.3 + 0.7 * intensity))
     
-    # Criar gráfico de barras 3D
-    ax.bar3d(x, y, z, dx, dy, dz, color=colors, shade=True, alpha=0.8)
+    # Plotar barras (exatamente como no exemplo)
+    ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True)
     
-    # Configurar eixos (MESMO ESTILO DO 2D)
-    ax.set_xlabel('Semanas do Ano', fontsize=12, color='white')
+    # Ajustar rótulos dos eixos (adaptado para trading)
+    ax.set_xlabel('Semana', fontsize=12, color='white')
     ax.set_ylabel('Dia da Semana', fontsize=12, color='white')
     ax.set_zlabel('Resultado Líquido (R$)', fontsize=12, color='white')
     
-    # Configurar labels dos dias da semana (MESMO DO 2D)
-    ax.set_yticks(range(7))
+    # Ajustar ticks dos dias da semana (exatamente como no exemplo)
+    ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
     ax.set_yticklabels(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'])
     
-    # Título (MESMO PADRÃO DO 2D)
-    ano_atual = datetime.now().year
-    ax.set_title(f'Heatmap 3D - Resultados Líquidos Diários - {ano_atual}', 
-                fontsize=16, color='white', pad=20)
-    
     # Configurar cores dos eixos para tema escuro
-    ax.xaxis.label.set_color('white')
-    ax.yaxis.label.set_color('white')
-    ax.zaxis.label.set_color('white')
     ax.tick_params(axis='x', colors='white')
     ax.tick_params(axis='y', colors='white')
     ax.tick_params(axis='z', colors='white')
     
-    # Configurar fundo (TRANSPARENTE COMO O 2D)
+    # Aparência (mesmo ângulo do exemplo)
+    ax.view_init(elev=30, azim=-60)  # Ângulo 3D semelhante ao do GitHub
+    
+    # Título adaptado
+    ano_atual = datetime.now().year
+    plt.title(f'Resultados de Trading - {ano_atual}', fontsize=14, color='white', pad=20)
+    
+    # Configurar fundo transparente
     ax.xaxis.pane.fill = False
     ax.yaxis.pane.fill = False
     ax.zaxis.pane.fill = False
@@ -623,37 +636,71 @@ else:
             )
             st.altair_chart(bar_chart, use_container_width=True)
         
-        # 4. Histograma e gráfico radial - usando resultado líquido
-        st.subheader("📈 Distribuição de Resultados Líquidos e Performance")
+        # 4. Resultado Diário (Resultado Líquido por Dia) - SEÇÃO ATUALIZADA
+        st.subheader("📅 Resultado Diário (Resultado Líquido por Dia)")
         
         col_hist, col_radial = st.columns([2, 1])
         
         with col_hist:
-            hist_data = df_filtrado.copy()
-            hist_data['Cor'] = hist_data['RESULTADO_LIQUIDO'].apply(lambda x: 'Ganho' if x > 0 else 'Perda' if x < 0 else 'Neutro')
-            
-            histogram = alt.Chart(hist_data).mark_bar().encode(
-                x=alt.X('RESULTADO_LIQUIDO:Q', bin=alt.Bin(maxbins=20), title='Resultado Líquido (R$)'),
-                y=alt.Y('count():Q', title='Frequência'),
-                color=alt.Color(
-                    'Cor:N',
-                    scale=alt.Scale(
-                        domain=['Perda', 'Neutro', 'Ganho'],
-                        range=['#d73027', '#cccccc', '#1a9850']
+            if not df_por_dia.empty:
+                # Calcular largura dinâmica baseada no número de dias
+                num_dias = len(df_por_dia)
+                
+                # Largura adaptativa: mais dias = barras mais finas, poucos dias = barras mais grossas
+                if num_dias <= 5:
+                    largura_barra = 0.8  # Barras bem grossas para poucos dias
+                elif num_dias <= 15:
+                    largura_barra = 0.6  # Barras médias
+                elif num_dias <= 30:
+                    largura_barra = 0.4  # Barras normais
+                else:
+                    largura_barra = 0.2  # Barras finas para muitos dias
+                
+                # Criar gráfico de barras com largura adaptativa
+                bar_daily = alt.Chart(df_por_dia).mark_bar(
+                    size=largura_barra * 50,  # Converter para pixels
+                    cornerRadius=3  # Bordas arredondadas para beleza
+                ).encode(
+                    x=alt.X('Data:T', 
+                           title='Data',
+                           axis=alt.Axis(labelAngle=-45, format='%d/%m')),
+                    y=alt.Y('Resultado_Liquido_Dia:Q', 
+                           title='Resultado Líquido do Dia (R$)'),
+                    color=alt.condition(
+                        alt.datum.Resultado_Liquido_Dia > 0,
+                        alt.value('#1a9850'),  # Verde para lucro
+                        alt.value('#d73027')   # Vermelho para prejuízo
                     ),
-                    title='Tipo'
-                ),
-                tooltip=[alt.Tooltip('RESULTADO_LIQUIDO:Q', format='.2f'), 'count():Q']
-            ).properties(
-                width='container',
-                height=500,
-                title='Distribuição dos Resultados Líquidos',
-                background='transparent'
-            )
-            
-            st.altair_chart(histogram, use_container_width=True)
+                    stroke=alt.value('white'),  # Borda branca
+                    strokeWidth=alt.value(1),
+                    tooltip=[
+                        alt.Tooltip('Data:T', title='Data', format='%d/%m/%Y'),
+                        alt.Tooltip('Resultado_Liquido_Dia:Q', format='.2f', title='Líquido (R$)'),
+                        alt.Tooltip('Resultado_Bruto_Dia:Q', format='.2f', title='Bruto (R$)'),
+                        alt.Tooltip('Custo_Dia:Q', format='.2f', title='Custo (R$)')
+                    ]
+                ).properties(
+                    width='container',
+                    height=500,
+                    title=alt.TitleParams(
+                        text='Resultado Líquido por Dia',
+                        fontSize=16,
+                        anchor='start'
+                    ),
+                    background='transparent'
+                ).resolve_scale(
+                    x='independent'
+                )
+                
+                st.altair_chart(bar_daily, use_container_width=True)
+                
+                # Informação sobre o período
+                st.info(f"📊 **Período analisado**: {len(df_por_dia)} dias com operações registradas")
+            else:
+                st.warning("Não há dados suficientes para exibir o resultado diário.")
         
         with col_radial:
+            # Manter o gráfico de pizza como estava
             pizza_data = pd.DataFrame({
                 'Tipo': ['Ganhadores', 'Perdedores'],
                 'Quantidade': [trades_ganhadores, trades_perdedores],
@@ -664,16 +711,25 @@ else:
                 pizza_data = pizza_data[pizza_data['Quantidade'] > 0]
             
             pie_chart = alt.Chart(pizza_data).mark_arc(
-                innerRadius=50,
-                outerRadius=120
+                innerRadius=60,
+                outerRadius=140,
+                stroke='white',
+                strokeWidth=2
             ).encode(
                 theta=alt.Theta("Quantidade:Q", stack=True),
-                color=alt.Color("Tipo:N", scale=alt.Scale(domain=["Ganhadores", "Perdedores"], range=["#1a9850", "#d73027"])),
+                color=alt.Color("Tipo:N", 
+                               scale=alt.Scale(domain=["Ganhadores", "Perdedores"], 
+                                             range=["#1a9850", "#d73027"]),
+                               legend=alt.Legend(title="Tipo de Trade")),
                 tooltip=["Tipo:N", "Quantidade:Q"]
             ).properties(
                 width='container',
                 height=500,
-                title="Proporção de Trades Ganhadores/Perdedores (Líquido)",
+                title=alt.TitleParams(
+                    text="Proporção de Trades",
+                    fontSize=16,
+                    anchor='start'
+                ),
                 background='transparent'
             )
             
