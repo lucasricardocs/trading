@@ -331,7 +331,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap minimalista com bordas apenas nos dias do ano atual"""
+    """Heatmap minimalista com dias fora do ano transparentes"""
     if df_heatmap_final.empty:
         return None
     
@@ -365,7 +365,6 @@ def create_heatmap_2d_github(df_heatmap_final):
     full_df['month_name'] = full_df['Data_dt'].dt.strftime('%b')
     full_df['week_corrected'] = ((full_df['Data_dt'] - start_date).dt.days // 7)
     
-    # CORREÇÃO: Definir stroke baseado no ano
     def get_stroke_width(row):
         if pd.isna(row['display_resultado']) or row['display_resultado'] is None:
             return 0  # SEM BORDA para dias fora do ano
@@ -398,7 +397,7 @@ def create_heatmap_2d_github(df_heatmap_final):
         text='month_name:N'
     )
 
-    # CORREÇÃO: Usar stroke condicional
+    # CORREÇÃO: Dias fora do ano transparentes
     heatmap = alt.Chart(full_df).mark_rect(
         stroke='white',
         cornerRadius=2
@@ -407,11 +406,11 @@ def create_heatmap_2d_github(df_heatmap_final):
         y=alt.Y('day_display_name:N', sort=day_display_names, title=None,
                 axis=alt.Axis(labelAngle=0, labelFontSize=9, ticks=False, 
                              domain=False, grid=False, labelColor='#999', labelPadding=8)),
-        strokeWidth=alt.StrokeWidth('stroke_width:Q', legend=None),  # STROKE CONDICIONAL
+        strokeWidth=alt.StrokeWidth('stroke_width:Q', legend=None),
         color=alt.Color('color_category:N',
                        scale=alt.Scale(
                            domain=['fora_ano', 'vazio', 'positivo', 'negativo'],
-                           range=['#222', '#cccccc', '#28a745', '#dc3545']
+                           range=['transparent', '#cccccc', '#28a745', '#dc3545']  # TRANSPARENTE para fora do ano
                        ),
                        legend=None),
         tooltip=[
@@ -487,7 +486,7 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
 # --- Interface ---
 st.title("🔥 Trading Analytics")
 
-# --- Sidebar ---
+# --- Sidebar LIMPA ---
 with st.sidebar:
     st.markdown("### ➕ Adicionar")
     
@@ -519,7 +518,6 @@ with st.sidebar:
 
     st.markdown("### 🔎 Período")
     
-    # --- Dados ---
     df = load_data()
     
     if not df.empty and 'ABERTURA' in df.columns:
