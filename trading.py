@@ -559,7 +559,7 @@ else:
                 ]
             ).properties(
                 width='container',
-                height=150,
+                height=500,
                 title=alt.TitleParams(
                     text=f'Heatmap 2D - Resultados Líquidos Diários - {ano_atual}',
                     fontSize=16,
