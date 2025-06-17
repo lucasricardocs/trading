@@ -33,7 +33,7 @@ cores = ['#ff4500', '#ff8c00', '#ffd700', '#ffffff']
 # 🎧 Som de braseiro
 audio_html = """
 <audio autoplay loop volume="0.3">
-  <source src="https://www.soundjay.com/nature/fire-1.mp3" type="audio/mp3">
+  <source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_ef3fcd5aab.mp3?filename=fireplace-crackling-11268.mp3" type="audio/mp3">
 </audio>
 """
 
@@ -67,7 +67,7 @@ def gerar_fagulhas(qtd=100):
         """
     return fagulhas
 
-# CSS com Containers Agradáveis para Tema Escuro
+# CSS com Containers Escuros Apenas para Gráficos
 css = f"""
 <style>
 /* Background e fagulhas */
@@ -206,7 +206,7 @@ h2, h3 {{
     border-radius: 6px;
 }}
 
-/* CONTAINERS COM BORDER=TRUE - COR INTERNA AGRADÁVEL */
+/* CONTAINERS ESCUROS APENAS PARA GRÁFICOS */
 [data-testid="stVerticalBlockBorderWrapper"] {{
     background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3a 100%) !important;
     border: 1px solid #404040 !important;
@@ -331,7 +331,7 @@ def calcular_largura_e_espacamento(num_elementos):
         return {'size': 15, 'padding': 0.02}
 
 def create_heatmap_2d_github(df_heatmap_final):
-    """Heatmap com stroke 2"""
+    """Heatmap minimalista com codificação de cores específica"""[3]
     if df_heatmap_final.empty:
         return None
     
@@ -392,7 +392,7 @@ def create_heatmap_2d_github(df_heatmap_final):
 
     heatmap = alt.Chart(full_df).mark_rect(
         stroke='white',
-        strokeWidth=2,  # STROKE 2
+        strokeWidth=2,
         cornerRadius=2
     ).encode(
         x=alt.X('week_corrected:O', title=None, axis=None),
@@ -417,7 +417,7 @@ def create_heatmap_2d_github(df_heatmap_final):
 def create_evolution_chart_with_gradient(df_area):
     """Gráfico de evolução com stroke 2"""
     area_chart = alt.Chart(df_area).mark_area(
-        line={'strokeWidth': 2, 'stroke': '#ffffff'},  # STROKE 2
+        line={'strokeWidth': 2, 'stroke': '#ffffff'},
         opacity=0.8,
         interpolate='monotone'
     ).encode(
@@ -442,19 +442,16 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
     if trades_ganhadores == 0 and trades_perdedores == 0:
         return None
     
-    # Criar dados no formato especificado
     source = pd.DataFrame({
         "values": [trades_ganhadores, trades_perdedores],
         "labels": ["Ganhadores", "Perdedores"]
     })
     
-    # Filtrar apenas valores > 0
     source = source[source['values'] > 0]
     
     if source.empty:
         return None
     
-    # Base chart conforme especificado
     base = alt.Chart(source).encode(
         alt.Theta("values:Q").stack(True),
         alt.Radius("values").scale(type="sqrt", zero=True, rangeMin=20),
@@ -464,10 +461,8 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
                        legend=None)
     )
     
-    # Arcos com stroke 2
-    c1 = base.mark_arc(innerRadius=20, stroke="#fff", strokeWidth=2)  # STROKE 2
+    c1 = base.mark_arc(innerRadius=20, stroke="#fff", strokeWidth=2)
     
-    # Texto com valores
     c2 = base.mark_text(radiusOffset=15, color='white', fontSize=12, fontWeight='bold').encode(
         text="values:Q"
     )
@@ -483,8 +478,8 @@ def create_radial_chart(trades_ganhadores, trades_perdedores):
 # --- Interface ---
 st.title("🔥 Trading Analytics")
 
-# --- Sidebar ---
-st.sidebar:
+# --- Sidebar SEM CONTAINERS ---
+with st.sidebar:
     st.markdown("### ➕ Adicionar")
     
     with st.form("nova_operacao"):
@@ -513,12 +508,11 @@ st.sidebar:
             else:
                 st.error("❌ Erro ao adicionar")
 
-# --- Dados ---
-df = load_data()
-
-# --- Filtros ---
-with st.sidebar:
     st.markdown("### 🔎 Período")
+    
+    # --- Dados ---
+    df = load_data()
+    
     if not df.empty and 'ABERTURA' in df.columns:
         data_min = df['ABERTURA'].min().date()
         data_max = df['ABERTURA'].max().date()
@@ -539,15 +533,13 @@ with st.sidebar:
         resumo_ativo = resumo_ativo.reset_index()
         st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
 
-# --- Corpo Principal ---
+# --- Corpo Principal SEM CONTAINERS DESNECESSÁRIOS ---
 if df.empty:
     st.info("🔥 Adicione operações para começar")
 else:
-    # Container para dados
-    with st.container(border=True):
-        st.markdown("### 📋 Dados das Operações")
-        with st.expander("Ver todas as operações"):
-            st.dataframe(df, use_container_width=True)
+    # Expander SEM container
+    with st.expander("📋 Ver todas as operações"):
+        st.dataframe(df, use_container_width=True)
 
     if 'RESULTADO_LIQUIDO' in df_filtrado.columns and 'ABERTURA' in df_filtrado.columns:
         valor_total = df_filtrado['RESULTADO_LIQUIDO'].sum()
@@ -563,7 +555,7 @@ else:
         trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
-        # Métricas
+        # Métricas SEM container
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("💰 Total", f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
@@ -574,7 +566,7 @@ else:
         with col4:
             st.metric("✅ Acerto", f"{taxa_acerto:.0f}%")
 
-        # Container Heatmap
+        # Container APENAS para Heatmap
         with st.container(border=True):
             st.markdown("### 🔥 Atividade Anual")
             df_heatmap = df.copy()
@@ -595,7 +587,7 @@ else:
                 if heatmap_2d_github:
                     st.altair_chart(heatmap_2d_github, use_container_width=True)
         
-        # Container Evolução
+        # Container APENAS para Evolução
         with st.container(border=True):
             st.markdown("### 📊 Evolução Acumulada")
             if not df_por_dia.empty:
@@ -604,11 +596,10 @@ else:
                 evolution_chart = create_evolution_chart_with_gradient(df_area)
                 st.altair_chart(evolution_chart, use_container_width=True)
 
-        # Container Trades
+        # Container APENAS para Trades
         with st.container(border=True):
             st.markdown("### 🎯 Resultados por Trade")
             
-            # Layout: 2/3 para trades, 1/3 para radial
             col_trades, col_radial = st.columns([2, 1])
             
             with col_trades:
@@ -623,7 +614,7 @@ else:
                         size=config['size'], 
                         cornerRadius=1,
                         stroke='white',
-                        strokeWidth=2  # STROKE 2
+                        strokeWidth=2
                     ).encode(
                         x=alt.X('Index:O', title='', axis=alt.Axis(grid=False, domain=False, ticks=False),
                                scale=alt.Scale(paddingInner=config['padding'], paddingOuter=0.1)),
@@ -638,7 +629,7 @@ else:
                     )
                     
                     linha_zero = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
-                        color='#666', strokeWidth=2, opacity=0.5  # STROKE 2
+                        color='#666', strokeWidth=2, opacity=0.5
                     ).encode(y=alt.Y('zero:Q'))
                     
                     chart_final = (bars + linha_zero).properties(
