@@ -22,7 +22,7 @@ WORKSHEET_NAME = "dados"
 st.set_page_config(
     page_title="Trading Analytics",
     page_icon="📊",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded"
 )
 
