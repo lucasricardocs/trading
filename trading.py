@@ -209,25 +209,30 @@ def add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultad
             return False
     return False
 
-def calcular_largura_adaptativa(num_elementos):
-    """Calcula a largura das barras baseada no número de elementos."""
+def calcular_largura_e_espacamento(num_elementos):
+    """Calcula largura e espaçamento para centralizar histogramas."""
     if num_elementos <= 5:
-        return 0.9
+        return {'size': 60, 'padding': 0.3}
     elif num_elementos <= 15:
-        return 0.7
+        return {'size': 45, 'padding': 0.2}
     elif num_elementos <= 30:
-        return 0.5
+        return {'size': 30, 'padding': 0.1}
     elif num_elementos <= 50:
-        return 0.3
+        return {'size': 20, 'padding': 0.05}
     else:
-        return 0.2
+        return {'size': 15, 'padding': 0.02}
 
 def create_3d_heatmap(df_heatmap_final):
-    """Cria um heatmap 3D estilo GitHub com fundo transparente."""
+    """Cria um heatmap 3D com design elegante, sem título nem legenda."""
     
     plt.style.use('dark_background')
     
-    fig = plt.figure(figsize=(18, 8))
+    # Proporções personalizadas: comprimento 3x largura, altura 70% da largura
+    largura_base = 8
+    comprimento = largura_base * 3    # 24
+    altura = largura_base * 0.7       # 5.6
+    
+    fig = plt.figure(figsize=(comprimento, altura))
     fig.patch.set_alpha(0.0)
     ax = fig.add_subplot(111, projection='3d')
     
@@ -245,6 +250,7 @@ def create_3d_heatmap(df_heatmap_final):
     if data_inicio.weekday() == 6:
         primeiro_domingo = data_inicio
     
+    # INCLUIR TODOS OS 365 DIAS
     for data in todas_datas:
         dias_desde_inicio = (data - primeiro_domingo).days
         semana = dias_desde_inicio // 7
@@ -264,57 +270,67 @@ def create_3d_heatmap(df_heatmap_final):
     y = np.array(dias_semana)
     z = np.zeros_like(x)
     
-    dx = dy = 0.9
+    dx = dy = 0.85
     dz = []
+    
+    max_abs_resultado = max(abs(min(resultados)), abs(max(resultados))) if resultados else 1
     
     for resultado in resultados:
         if resultado == 0:
-            dz.append(0.1)
+            dz.append(0.02)
         else:
-            altura = max(abs(resultado) / 100, 0.5)
-            dz.append(altura)
+            altura_barra = (abs(resultado) / max_abs_resultado) * 2.0 + 0.1
+            dz.append(altura_barra)
     
     dz = np.array(dz)
     
+    # Cores elegantes
     cores = []
     for resultado in resultados:
         if resultado > 0:
-            if resultado <= 50:
-                cores.append('#0e4429')
-            elif resultado <= 100:
-                cores.append('#006d32')
-            elif resultado <= 200:
-                cores.append('#26a641')
+            intensity = min(abs(resultado) / max_abs_resultado, 1.0) if max_abs_resultado > 0 else 0
+            if intensity < 0.2:
+                cores.append('#1f4e3d')
+            elif intensity < 0.4:
+                cores.append('#2d5a47')
+            elif intensity < 0.6:
+                cores.append('#3d7c5a')
+            elif intensity < 0.8:
+                cores.append('#4d9e6d')
             else:
-                cores.append('#39d353')
+                cores.append('#5dbf80')
         elif resultado < 0:
-            if resultado >= -50:
-                cores.append('#450a0a')
-            elif resultado >= -100:
-                cores.append('#7f1d1d')
-            elif resultado >= -200:
-                cores.append('#dc2626')
+            intensity = min(abs(resultado) / max_abs_resultado, 1.0) if max_abs_resultado > 0 else 0
+            if intensity < 0.2:
+                cores.append('#4e1f1f')
+            elif intensity < 0.4:
+                cores.append('#5a2d2d')
+            elif intensity < 0.6:
+                cores.append('#7c3d3d')
+            elif intensity < 0.8:
+                cores.append('#9e4d4d')
             else:
-                cores.append('#f87171')
+                cores.append('#bf5d5d')
         else:
-            cores.append('#161b22')
+            cores.append('#1a1a1a')
     
-    ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=False, alpha=0.9)
+    # Plotar barras
+    bars = ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True, alpha=0.95, 
+                    edgecolor='#2a2a2a', linewidth=0.5)
     
-    ax.set_xlabel('Semanas', fontsize=12, color='#8b949e')
-    ax.set_ylabel('Dia da Semana', fontsize=12, color='#8b949e')
-    ax.set_zlabel('Resultado (R$)', fontsize=12, color='#8b949e')
+    # Configurar eixos SEM LABELS (removidos para design limpo)
+    ax.set_xlabel('', fontsize=14, color='#e0e0e0', labelpad=15)
+    ax.set_ylabel('', fontsize=14, color='#e0e0e0', labelpad=15)
+    ax.set_zlabel('', fontsize=14, color='#e0e0e0', labelpad=15)
     
-    ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
-    ax.set_yticklabels(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'])
+    # Remover ticks e labels dos eixos
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
     
-    ax.tick_params(axis='x', colors='#8b949e')
-    ax.tick_params(axis='y', colors='#8b949e')
-    ax.tick_params(axis='z', colors='#8b949e')
+    # SEM TÍTULO (removido conforme solicitado)
     
-    plt.title(f'Contribuições de Trading - {ano_atual}', 
-              fontsize=14, color='#f0f6fc', pad=20)
-    
+    # Configurar fundo completamente transparente
     ax.xaxis.pane.fill = False
     ax.yaxis.pane.fill = False
     ax.zaxis.pane.fill = False
@@ -323,11 +339,17 @@ def create_3d_heatmap(df_heatmap_final):
     ax.zaxis.pane.set_edgecolor('none')
     ax.grid(False)
     
-    ax.view_init(elev=30, azim=-60)
+    # Ângulo otimizado
+    ax.view_init(elev=25, azim=-45)
     
+    ax.set_xlim(0, max(x) + 1)
+    ax.set_ylim(-0.5, 6.5)
+    
+    # Salvar com alta qualidade
     buffer = io.BytesIO()
-    plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight', 
-                facecolor='none', edgecolor='none', transparent=True)
+    plt.savefig(buffer, format='png', dpi=200, bbox_inches='tight', 
+                facecolor='none', edgecolor='none', transparent=True,
+                pad_inches=0.1)
     buffer.seek(0)
     plt.close()
     
@@ -534,8 +556,11 @@ else:
             df_heatmap_2d['RESULTADO_LIQUIDO'] = df_heatmap_2d['RESULTADO_LIQUIDO'].fillna(0)
             
             df_heatmap_2d['Data_dt'] = pd.to_datetime(df_heatmap_2d['Data'])
-            df_heatmap_2d['Mes'] = df_heatmap_2d['Data_dt'].dt.month
+            df_heatmap_2d['Semana'] = df_heatmap_2d['Data_dt'].dt.isocalendar().week
             df_heatmap_2d['DiaSemana'] = df_heatmap_2d['Data_dt'].dt.dayofweek
+            
+            primeira_semana = df_heatmap_2d['Semana'].min()
+            df_heatmap_2d['Semana_Ajustada'] = df_heatmap_2d['Semana'] - primeira_semana + 1
             
             valor_max = abs(df_heatmap_2d['RESULTADO_LIQUIDO']).max()
             
@@ -543,16 +568,15 @@ else:
                 stroke='white',
                 strokeWidth=1
             ).encode(
-                x=alt.X('Mes:O', 
-                        title='Meses do Ano',
-                        axis=alt.Axis(
-                            labelExpr="datum.value == 1 ? 'Jan' : datum.value == 2 ? 'Fev' : datum.value == 3 ? 'Mar' : datum.value == 4 ? 'Abr' : datum.value == 5 ? 'Mai' : datum.value == 6 ? 'Jun' : datum.value == 7 ? 'Jul' : datum.value == 8 ? 'Ago' : datum.value == 9 ? 'Set' : datum.value == 10 ? 'Out' : datum.value == 11 ? 'Nov' : 'Dez'"
-                        )),
+                x=alt.X('Semana_Ajustada:O', 
+                        title='Semanas do Ano',
+                        axis=alt.Axis(labelAngle=0, tickCount=12)),
                 y=alt.Y('DiaSemana:O', 
                         title='Dias da Semana',
                         axis=alt.Axis(
                             labelExpr="datum.value == 0 ? 'Seg' : datum.value == 1 ? 'Ter' : datum.value == 2 ? 'Qua' : datum.value == 3 ? 'Qui' : datum.value == 4 ? 'Sex' : datum.value == 5 ? 'Sáb' : 'Dom'"
-                        )),
+                        ),
+                        scale=alt.Scale(domain=[0, 1, 2, 3, 4, 5, 6])),
                 color=alt.Color(
                     'RESULTADO_LIQUIDO:Q',
                     scale=alt.Scale(
@@ -619,16 +643,34 @@ else:
             df_trades['Trade_Index'] = range(1, len(df_trades) + 1)
             
             num_trades = len(df_trades)
-            largura_adaptativa = calcular_largura_adaptativa(num_trades)
+            config = calcular_largura_e_espacamento(num_trades)
             
-            bar_trades = alt.Chart(df_trades).mark_bar(
-                size=largura_adaptativa * 60,
+            # Gráfico de barras
+            bars = alt.Chart(df_trades).mark_bar(
+                size=config['size'],
                 cornerRadius=3,
                 stroke='white',
                 strokeWidth=1
             ).encode(
-                x=alt.X('Trade_Index:O', title='Trade'),
-                y=alt.Y('RESULTADO_LIQUIDO:Q', title='Resultado (R$)'),
+                x=alt.X('Trade_Index:O', 
+                       title='Trade',
+                       axis=alt.Axis(
+                           grid=False,
+                           domain=True,
+                           ticks=True,
+                           labelAngle=0
+                       ),
+                       scale=alt.Scale(
+                           paddingInner=config['padding'],
+                           paddingOuter=0.1
+                       )),
+                y=alt.Y('RESULTADO_LIQUIDO:Q', 
+                       title='Resultado (R$)',
+                       axis=alt.Axis(
+                           grid=True,
+                           gridOpacity=0.08,
+                           gridColor='#333333'
+                       )),
                 color=alt.condition(
                     alt.datum.RESULTADO_LIQUIDO > 0,
                     alt.value('#1a9850'),
@@ -640,13 +682,27 @@ else:
                     alt.Tooltip('ATIVO:N', title='Ativo'),
                     alt.Tooltip('RESULTADO_LIQUIDO:Q', format='.2f', title='Líquido (R$)')
                 ]
-            ).properties(
+            )
+            
+            # Linha zero espessa
+            linha_zero = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
+                color='#ffffff',
+                strokeWidth=4,
+                opacity=0.9
+            ).encode(
+                y=alt.Y('zero:Q')
+            )
+            
+            # Combinar gráficos
+            chart_final = (bars + linha_zero).properties(
                 width='container',
                 height=500,
                 background='transparent'
+            ).resolve_scale(
+                x='independent'
             )
             
-            st.altair_chart(bar_trades, use_container_width=True)
+            st.altair_chart(chart_final, use_container_width=True)
         
         # Resultado Diário
         st.subheader("📅 Resultado Diário")
@@ -656,16 +712,38 @@ else:
         with col_hist:
             if not df_por_dia.empty:
                 num_dias = len(df_por_dia)
-                largura_adaptativa = calcular_largura_adaptativa(num_dias)
+                config = calcular_largura_e_espacamento(num_dias)
                 
-                bar_daily = alt.Chart(df_por_dia).mark_bar(
-                    size=largura_adaptativa * 80,
+                # Adicionar índice sequencial para melhor controle do espaçamento
+                df_por_dia_indexed = df_por_dia.copy()
+                df_por_dia_indexed['Dia_Index'] = range(1, len(df_por_dia_indexed) + 1)
+                
+                # Gráfico de barras
+                bars_daily = alt.Chart(df_por_dia_indexed).mark_bar(
+                    size=config['size'],
                     cornerRadius=4,
                     stroke='white',
                     strokeWidth=1.5
                 ).encode(
-                    x=alt.X('Data:T', title='Data', axis=alt.Axis(format='%d/%m')),
-                    y=alt.Y('Resultado_Liquido_Dia:Q', title='Resultado (R$)'),
+                    x=alt.X('Dia_Index:O', 
+                           title='Sequência de Dias',
+                           axis=alt.Axis(
+                               labelExpr="''",
+                               grid=False,
+                               domain=True,
+                               ticks=False
+                           ),
+                           scale=alt.Scale(
+                               paddingInner=config['padding'],
+                               paddingOuter=0.1
+                           )),
+                    y=alt.Y('Resultado_Liquido_Dia:Q', 
+                           title='Resultado (R$)',
+                           axis=alt.Axis(
+                               grid=True,
+                               gridOpacity=0.08,
+                               gridColor='#333333'
+                           )),
                     color=alt.condition(
                         alt.datum.Resultado_Liquido_Dia > 0,
                         alt.value('#1a9850'),
@@ -675,13 +753,27 @@ else:
                         alt.Tooltip('Data:T', title='Data', format='%d/%m'),
                         alt.Tooltip('Resultado_Liquido_Dia:Q', format='.2f', title='Líquido (R$)')
                     ]
-                ).properties(
+                )
+                
+                # Linha zero espessa
+                linha_zero_daily = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
+                    color='#ffffff',
+                    strokeWidth=4,
+                    opacity=0.9
+                ).encode(
+                    y=alt.Y('zero:Q')
+                )
+                
+                # Combinar gráficos
+                chart_daily_final = (bars_daily + linha_zero_daily).properties(
                     width='container',
                     height=500,
                     background='transparent'
+                ).resolve_scale(
+                    x='independent'
                 )
                 
-                st.altair_chart(bar_daily, use_container_width=True)
+                st.altair_chart(chart_daily_final, use_container_width=True)
         
         with col_radial:
             pizza_data = pd.DataFrame({
