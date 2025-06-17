@@ -324,7 +324,7 @@ def create_3d_heatmap(df_heatmap_final):
             cores.append('#1a1a1a')
     
     # Plotar barras
-    bars = ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True, alpha=0.95, 
+    bars = ax.bar3d(x, y, z, dx, dy, dz, color=cores, shade=True, alpha=0.15, 
                     edgecolor='#2a2a2a', linewidth=0.1)
     
     # Configurar eixos SEM LABELS (design limpo)
@@ -352,7 +352,7 @@ def create_3d_heatmap(df_heatmap_final):
     ax.set_zlim(0, max(dz) * 1.1 if len(dz) > 0 else 1)
     
     # Ângulo otimizado para formato panorâmico
-    ax.view_init(elev=5, azim=-20)
+    ax.view_init(elev=12, azim=-20)
     
     # Salvar com alta qualidade
     buffer = io.BytesIO()
