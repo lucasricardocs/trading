@@ -279,7 +279,7 @@ def create_3d_heatmap(df_heatmap_final):
     y = np.array(dias_semana)
     z = np.zeros_like(x)
     
-    dx = dy = 0.85
+    dx = dy = 0.5
     dz = []
     
     max_abs_resultado = max(abs(min(resultados)), abs(max(resultados))) if resultados else 1
