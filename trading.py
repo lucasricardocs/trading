@@ -352,7 +352,7 @@ def create_3d_heatmap(df_heatmap_final):
     ax.set_zlim(0, max(dz) * 1.1 if len(dz) > 0 else 1)
     
     # Ângulo otimizado para formato panorâmico
-    ax.view_init(elev=12, azim=-20)
+    ax.view_init(elev=12, azim=-5)
     
     # Salvar com alta qualidade
     buffer = io.BytesIO()
