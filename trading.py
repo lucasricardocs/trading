@@ -558,7 +558,7 @@ else:
         taxa_acerto = (trades_ganhadores / total_trades * 100) if total_trades > 0 else 0
         
         # MÉTRICAS SEM CONTAINERS - UMA AO LADO DA OUTRA
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4 = st.columns(2,2)
         with col1:
             st.metric("💰 Total", f"R$ {valor_total:,.0f}".replace('.', 'X').replace(',', '.').replace('X', ','))
         with col2:
