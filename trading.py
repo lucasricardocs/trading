@@ -40,11 +40,11 @@ audio_html = """
 def gerar_fagulhas(qtd=10):
     fagulhas = ""
     for i in range(qtd):
-        left = random.randint(0, 100)
+        left = random.randint(0, 10)
         size = random.uniform(3, 6)
         duration = random.uniform(5, 9)
         delay = random.uniform(0, 8)
-        shift = random.randint(-100, 100)
+        shift = random.randint(-10, 10)
         rotation = random.randint(-180, 180)
         scale = random.uniform(0.6, 1.5)
         blur = max(0.5, (2.0 - scale))
