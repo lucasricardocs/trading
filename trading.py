@@ -186,17 +186,17 @@ def create_heatmap_trading_style(df_heatmap_final):
             return 'neutro'
         elif row['display_resultado'] > 0:
             # 3 níveis de verde
-            if row['display_resultado'] > 3000:
+            if row['display_resultado'] > 300:
                 return 'positivo_forte'
-            elif row['display_resultado'] > 1000:
+            elif row['display_resultado'] > 100:
                 return 'positivo_medio'
             else:
                 return 'positivo_fraco'
         else:
             # 3 níveis de vermelho
-            if row['display_resultado'] < -3000:
+            if row['display_resultado'] < -400:
                 return 'negativo_forte'
-            elif row['display_resultado'] < -1000:
+            elif row['display_resultado'] < -200:
                 return 'negativo_medio'
             else:
                 return 'negativo_fraco'
