@@ -230,8 +230,8 @@ def create_heatmap_trading_style(df_heatmap_final):
     # Heatmap principal
     heatmap = alt.Chart(full_df).mark_rect(
         stroke='white',
-        strokeWidth=1,
-        cornerRadius=2
+        strokeWidth=4,
+         cornerRadius=4
     ).encode(
         x=alt.X('week_corrected:O', title=None, axis=None),
         y=alt.Y('day_display_name:N', sort=day_display_names, title=None,
@@ -253,7 +253,7 @@ def create_heatmap_trading_style(df_heatmap_final):
                       'Neutro', 'Fraco Negativo', 'Médio Negativo', 'Forte Negativo'],
         'Cor': ['#28a745', '#a7d7b8', '#e6f4ea', COLOR_BASE, 
                 '#fce8e6', '#f4a9a9', '#dc3545'],
-        'Valor Min': [3000, 1000, 0.01, 0, -0.01, -1000, -3000],
+        'Valor Min': [400, 200, 100, 0, -100, -200, -400],
         'Valor Max': [None, 3000, 1000, 0.01, -0.01, -1000, None]
     })
     
