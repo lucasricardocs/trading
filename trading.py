@@ -4,7 +4,6 @@ import gspread
 import pandas as pd
 import altair as alt
 import numpy as np
-import time
 from datetime import datetime, date
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import SpreadsheetNotFound
@@ -38,19 +37,19 @@ def get_google_auth():
               'https://www.googleapis.com/auth/drive']
     try:
         if "google_credentials" not in st.secrets:
-            st.error("Credenciais não encontradas")
+            st.error("Credenciais não encontradas no `st.secrets`. Por favor, configure-as.")
             return None
         
         credentials_dict = st.secrets["google_credentials"]
         if not credentials_dict:
-            st.error("Credenciais vazias")
+            st.error("Credenciais vazias. Verifique a configuração de `st.secrets`.")
             return None
             
         creds = Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
         gc = gspread.authorize(creds)
         return gc
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro ao autenticar com o Google Sheets: {e}")
         return None
 
 @st.cache_resource
@@ -62,10 +61,10 @@ def get_worksheet():
             worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
             return worksheet
         except SpreadsheetNotFound:
-            st.error("Planilha não encontrada")
+            st.error(f"Planilha com ID '{SPREADSHEET_ID}' não encontrada. Verifique o ID e as permissões.")
             return None
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Erro ao acessar a planilha: {e}")
             return None
     return None
 
@@ -76,10 +75,12 @@ def load_data():
         try:
             rows = worksheet.get_all_records()
             if not rows:
+                st.info("Nenhum dado encontrado na planilha. Adicione algumas operações.")
                 return pd.DataFrame()
 
             df = pd.DataFrame(rows)
             
+            # Conversão de tipos de dados
             if 'ABERTURA' in df.columns:
                 df['ABERTURA'] = pd.to_datetime(df['ABERTURA'], errors='coerce')
             
@@ -90,10 +91,10 @@ def load_data():
             if 'QUANTIDADE' in df.columns:
                 df['QUANTIDADE'] = pd.to_numeric(df['QUANTIDADE'], errors='coerce').fillna(0)
 
+            # Cálculo de CUSTO e RESULTADO_LIQUIDO (vetorizado)
             if 'ATIVO' in df.columns and 'QUANTIDADE' in df.columns and 'RESULTADO' in df.columns:
                 custos = {'WDOFUT': 1.09, 'WINFUT': 0.39}
-                df['CUSTO'] = df.apply(lambda row: 
-                    custos.get(row['ATIVO'], 0) * row['QUANTIDADE'] * 2, axis=1)
+                df['CUSTO'] = df['ATIVO'].map(custos).fillna(0) * df['QUANTIDADE'] * 2
                 df['RESULTADO_LIQUIDO'] = df['RESULTADO'] - df['CUSTO']
             else:
                 df['CUSTO'] = 0
@@ -101,7 +102,7 @@ def load_data():
 
             return df
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Erro ao carregar ou processar os dados da planilha: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
 
@@ -113,35 +114,15 @@ def add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultad
             worksheet.append_row([ativo, data_abertura.strftime('%Y-%m-%d'), quantidade, tipo_operacao, resultado_str])
             return True
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Erro ao adicionar trade à planilha: {e}")
             return False
     return False
 
 def formatar_moeda(valor):
-    """Formata valor monetário com símbolo R$ e separadores brasileiros"""
-    try:
-        # Formatação manual: R$ 1.234,56
-        valor_str = f"{valor:,.2f}"
-        
-        # Separa parte inteira e decimal
-        if '.' in valor_str:
-            parte_inteira, parte_decimal = valor_str.split('.')
-        else:
-            parte_inteira = valor_str
-            parte_decimal = "00"
-        
-        # Formata parte inteira com pontos
-        parte_inteira_formatada = ""
-        for i, char in enumerate(reversed(parte_inteira)):
-            if i > 0 and i % 3 == 0:
-                parte_inteira_formatada = '.' + parte_inteira_formatada
-            parte_inteira_formatada = char + parte_inteira_formatada
-        
-        # Retorna string formatada
-        return f"R$ {parte_inteira_formatada},{parte_decimal}"
-    except:
-        # Fallback para valores simples
-        return f"R$ {valor:.2f}"
+    """Formata valor monetário com símbolo R$ e separadores brasileiros."""
+    if pd.isna(valor):
+        return "R$ 0,00"
+    return f"R$ {valor:,.2f}".replace('.', 'X').replace(',', '.').replace('X', ',')
 
 def create_heatmap_trading_style(df_heatmap_final):
     """Heatmap aprimorado no estilo trading"""
@@ -209,8 +190,8 @@ def create_heatmap_trading_style(df_heatmap_final):
                 'positivo_fraco', 'positivo_medio', 'positivo_forte',
                 'negativo_fraco', 'negativo_medio', 'negativo_forte'],
         range=['transparent', COLOR_BASE,
-               '#e6f4ea', '#a7d7b8', '#28a745',  # Tons de verde
-               '#fce8e6', '#f4a9a9', '#dc3545']   # Tons de vermelho
+               '#e6f4ea', '#a7d7b8', COLOR_POSITIVE,  # Tons de verde
+               '#fce8e6', '#f4a9a9', COLOR_NEGATIVE]   # Tons de vermelho
     )
     
     # Legendas dos meses
@@ -241,7 +222,7 @@ def create_heatmap_trading_style(df_heatmap_final):
         tooltip=[
             alt.Tooltip('Data:T', title='Data', format='%d/%m/%Y'),
             alt.Tooltip('day_display_name:N', title='Dia da Semana'),
-            alt.Tooltip('RESULTADO_LIQUIDO:Q', title='Resultado (R$)', format=',.0f')
+            alt.Tooltip('RESULTADO_LIQUIDO:Q', title='Resultado (R$)', format='.2f', formatType='currency') # Melhoria aqui
         ]
     ).properties(
         height=220
@@ -251,8 +232,8 @@ def create_heatmap_trading_style(df_heatmap_final):
     legend_data = pd.DataFrame({
         'Categoria': ['Forte Positivo', 'Médio Positivo', 'Fraco Positivo', 
                       'Neutro', 'Fraco Negativo', 'Médio Negativo', 'Forte Negativo'],
-        'Cor': ['#28a745', '#a7d7b8', '#e6f4ea', COLOR_BASE, 
-                '#fce8e6', '#f4a9a9', '#dc3545'],
+        'Cor': [COLOR_POSITIVE, '#a7d7b8', '#e6f4ea', COLOR_BASE, 
+                '#fce8e6', '#f4a9a9', COLOR_NEGATIVE],
         'Valor Min': [3000, 1000, 0.01, 0, -0.01, -1000, -3000],
         'Valor Max': [None, 3000, 1000, 0.01, -0.01, -1000, None]
     })
@@ -292,9 +273,9 @@ def create_evolution_chart(df_area):
             alt.value(COLOR_NEGATIVE)
         ),
         tooltip=[
-            'Data:T', 
-            alt.Tooltip('Acumulado:Q', format=',.0f', title='Acumulado'), 
-            alt.Tooltip('Resultado_Liquido_Dia:Q', format=',.0f', title='Dia')
+            alt.Tooltip('Data:T', title='Data', format='%d/%m/%Y'), 
+            alt.Tooltip('Acumulado:Q', format='.2f', title='Acumulado', formatType='currency'), # Melhoria aqui
+            alt.Tooltip('Resultado_Liquido_Dia:Q', format='.2f', title='Dia', formatType='currency') # Melhoria aqui
         ]
     ).properties(height=300)
     
@@ -342,9 +323,13 @@ def create_histogram_chart(df_filtrado):
         stroke='white',
         strokeWidth=2
     ).encode(
-        alt.X("RESULTADO_LIQUIDO:Q", bin=True, title="Resultado (R$)"),
+        alt.X("RESULTADO_LIQUIDO:Q", bin=True, title="Resultado (R$)", axis=alt.Axis(format='.2f', formatType='currency')),
         alt.Y('count()', title="Quantidade de Trades"),
-        color=alt.value(COLOR_NEUTRAL)
+        color=alt.value(COLOR_NEUTRAL),
+        tooltip=[
+            alt.Tooltip('RESULTADO_LIQUIDO:Q', title='Resultado (R$)', bin=True, format='.2f', formatType='currency'),
+            alt.Tooltip('count()', title='Trades')
+        ]
     ).properties(height=300).configure(background='transparent')
 
 def create_hourly_chart(df_filtrado):
@@ -356,14 +341,27 @@ def create_hourly_chart(df_filtrado):
         stroke='white',
         strokeWidth=2
     ).encode(
-        x='HORA:O',
-        y='RESULTADO_LIQUIDO:Q',
+        x=alt.X('HORA:O', title='Hora do Dia'),
+        y=alt.Y('RESULTADO_LIQUIDO:Q', title='Resultado Médio (R$)', axis=alt.Axis(format='.2f', formatType='currency')),
         color=alt.condition(
             alt.datum.RESULTADO_LIQUIDO >= 0,
             alt.value(COLOR_POSITIVE),
             alt.value(COLOR_NEGATIVE)
-        )
+        ),
+        tooltip=[
+            alt.Tooltip('HORA:O', title='Hora'),
+            alt.Tooltip('RESULTADO_LIQUIDO:Q', title='Resultado Médio (R$)', format='.2f', formatType='currency')
+        ]
     ).properties(height=300).configure(background='transparent')
+
+def format_top_trades(df_trades):
+    """Formata DataFrame de top trades para exibição."""
+    df_formatted = df_trades.copy()
+    if 'ABERTURA' in df_formatted.columns:
+        df_formatted['ABERTURA'] = df_formatted['ABERTURA'].dt.strftime('%d/%m/%Y')
+    if 'RESULTADO_LIQUIDO' in df_formatted.columns:
+        df_formatted['RESULTADO_LIQUIDO'] = df_formatted['RESULTADO_LIQUIDO'].apply(formatar_moeda)
+    return df_formatted
 
 # --- Interface ---
 st.title("📊 Trading Analytics")
@@ -383,26 +381,25 @@ with st.sidebar:
             try:
                 resultado_valor = float(resultado_input.replace(',', '.'))
             except ValueError:
-                st.error("Valor inválido. Use números com vírgula decimal.")
+                st.error("Valor inválido. Use números com vírgula decimal (ex: 123,45).")
                 resultado_valor = 0.0
 
             submitted = st.form_submit_button("✅ Adicionar")
             
             if submitted:
                 if add_trade_to_sheet(ativo, data_abertura, quantidade, tipo_operacao, resultado_valor):
-                    st.success("✅ Trade adicionado!")
-                    st.cache_data.clear()
-                    time.sleep(1.5)
-                    st.rerun()
+                    st.success("✅ Trade adicionado com sucesso!")
+                    st.cache_data.clear() # Limpa o cache para recarregar os dados
+                    st.rerun() # Força o rerun para atualizar a interface
                 else:
-                    st.error("❌ Erro ao adicionar")
+                    st.error("❌ Erro ao adicionar trade. Verifique os logs.")
 
     st.header("Filtros")
     
     df = load_data()
     
     with st.expander("🔎 Período", expanded=True):
-        if not df.empty and 'ABERTURA' in df.columns:
+        if not df.empty and 'ABERTURA' in df.columns and not df['ABERTURA'].isnull().all():
             data_min = df['ABERTURA'].min().date()
             data_max = df['ABERTURA'].max().date()
             data_inicial, data_final = st.date_input(
@@ -411,29 +408,39 @@ with st.sidebar:
             )
             df_filtrado = df[(df['ABERTURA'].dt.date >= data_inicial) & (df['ABERTURA'].dt.date <= data_final)]
         else:
+            st.info("Não há dados de data disponíveis para filtrar.")
             df_filtrado = df.copy()
 
     st.header("Resumo")
     with st.expander("📊 Por Ativo", expanded=True):
-        if not df_filtrado.empty:
+        if not df_filtrado.empty and 'ATIVO' in df_filtrado.columns and 'RESULTADO_LIQUIDO' in df_filtrado.columns:
             resumo_ativo = df_filtrado.groupby('ATIVO').agg({
                 'RESULTADO_LIQUIDO': ['count', 'sum', 'mean']
-            }).round(0)
+            }).round(2) # Arredondar para 2 casas decimais para valores monetários
             resumo_ativo.columns = ['Trades', 'Total', 'Média']
             resumo_ativo = resumo_ativo.reset_index()
+            
+            # Formatar colunas monetárias
+            resumo_ativo['Total'] = resumo_ativo['Total'].apply(formatar_moeda)
+            resumo_ativo['Média'] = resumo_ativo['Média'].apply(formatar_moeda)
+            
             st.dataframe(resumo_ativo, use_container_width=True, hide_index=True)
+        else:
+            st.info("Dados insuficientes para gerar o resumo por ativo.")
 
 # --- Corpo Principal ---
 if df.empty:
-    st.info("ℹ️ Adicione operações para começar")
+    st.info("ℹ️ Adicione operações para começar a visualizar os dados.")
 else:
     # Dados filtrados
     valor_total = df_filtrado['RESULTADO_LIQUIDO'].sum()
     media_resultado = df_filtrado['RESULTADO_LIQUIDO'].mean()
+    
     df_por_dia = df_filtrado.groupby(df_filtrado['ABERTURA'].dt.date).agg({
         'RESULTADO_LIQUIDO': 'sum'
     }).reset_index()
     df_por_dia.columns = ['Data', 'Resultado_Liquido_Dia']
+    
     total_trades = len(df_filtrado)
     trades_ganhadores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] > 0])
     trades_perdedores = len(df_filtrado[df_filtrado['RESULTADO_LIQUIDO'] < 0])
@@ -461,7 +468,7 @@ else:
         
         # --- Atividade Anual ---
         st.subheader("Atividade Anual")
-        if not df.empty and 'ABERTURA' in df.columns:
+        if not df.empty and 'ABERTURA' in df.columns and not df['ABERTURA'].isnull().all():
             df_heatmap = df.copy()
             df_heatmap['Data'] = df_heatmap['ABERTURA'].dt.date
             df_heatmap_grouped = df_heatmap.groupby('Data')['RESULTADO_LIQUIDO'].sum().reset_index()
@@ -478,6 +485,10 @@ else:
             heatmap = create_heatmap_trading_style(df_heatmap_final)
             if heatmap:
                 st.altair_chart(heatmap, use_container_width=True)
+            else:
+                st.info("Dados insuficientes para gerar o Heatmap Anual.")
+        else:
+            st.info("Dados de abertura insuficientes para gerar o Heatmap Anual.")
         
         # --- Evolução Acumulada ---
         st.subheader("Evolução Acumulada")
@@ -486,6 +497,8 @@ else:
             df_area['Acumulado'] = df_area['Resultado_Liquido_Dia'].cumsum()
             evolution_chart = create_evolution_chart(df_area)
             st.altair_chart(evolution_chart, use_container_width=True)
+        else:
+            st.info("Dados insuficientes para gerar o Gráfico de Evolução Acumulada.")
     
     with tab2:
         # --- Métricas de Risco ---
@@ -493,14 +506,18 @@ else:
         col5, col6, col7 = st.columns(3)
         
         with col5:
-            if not df_por_dia.empty:
+            if not df_por_dia.empty and 'Acumulado' in df_area.columns:
                 max_drawdown = (df_area['Acumulado'].cummax() - df_area['Acumulado']).max()
                 st.metric("📉 Máximo Drawdown", formatar_moeda(max_drawdown))
+            else:
+                st.info("N/A")
         
         with col6:
-            if len(df_filtrado) > 1:
+            if len(df_filtrado) > 1 and df_filtrado['RESULTADO_LIQUIDO'].std() > 0:
                 sharpe_ratio = (media_resultado / df_filtrado['RESULTADO_LIQUIDO'].std()) * np.sqrt(252)
                 st.metric("⚖️ Índice Sharpe", f"{sharpe_ratio:.2f}")
+            else:
+                st.info("N/A")
         
         with col7:
             if trades_perdedores > 0:
@@ -508,15 +525,19 @@ else:
                 st.metric("📊 Ratio Win/Loss", f"{win_loss_ratio:.2f}:1")
             elif trades_ganhadores > 0:
                 st.metric("📊 Ratio Win/Loss", f"{trades_ganhadores}:0")
+            else:
+                st.info("N/A")
         
         # --- Histograma e Radial lado a lado ---
         col_hist, col_radial = st.columns([2, 1])
         
         with col_hist:
             st.subheader("Distribuição de Resultados")
-            if not df_filtrado.empty:
+            if not df_filtrado.empty and 'RESULTADO_LIQUIDO' in df_filtrado.columns:
                 hist_chart = create_histogram_chart(df_filtrado)
                 st.altair_chart(hist_chart, use_container_width=True)
+            else:
+                st.info("Dados insuficientes para gerar o Histograma.")
         
         with col_radial:
             st.subheader("Distribuição de Trades")
@@ -524,52 +545,59 @@ else:
             if radial_chart:
                 st.altair_chart(radial_chart, use_container_width=True)
             else:
-                st.info("Sem dados suficientes")
+                st.info("Sem dados suficientes para gerar o Gráfico Radial.")
     
     with tab3:
         # --- Performance por Horário ---
         st.subheader("Performance por Horário")
-        if 'ABERTURA' in df_filtrado.columns:
+        if 'ABERTURA' in df_filtrado.columns and not df_filtrado['ABERTURA'].isnull().all():
             hourly_chart = create_hourly_chart(df_filtrado)
             st.altair_chart(hourly_chart, use_container_width=True)
+        else:
+            st.info("Dados de abertura insuficientes para gerar o Gráfico de Performance por Horário.")
         
         # --- Top Operações ---
         col_top1, col_top2 = st.columns(2)
         
         with col_top1:
             st.subheader("Melhores Operações")
-            if not df_filtrado.empty:
+            if not df_filtrado.empty and 'RESULTADO_LIQUIDO' in df_filtrado.columns:
                 top_ganhos = df_filtrado.nlargest(5, 'RESULTADO_LIQUIDO')[['ATIVO', 'ABERTURA', 'QUANTIDADE', 'RESULTADO_LIQUIDO']]
-                top_ganhos['ABERTURA'] = top_ganhos['ABERTURA'].dt.strftime('%d/%m/%Y')
-                top_ganhos['RESULTADO_LIQUIDO'] = top_ganhos['RESULTADO_LIQUIDO'].apply(formatar_moeda)
-                st.dataframe(top_ganhos, hide_index=True)
+                st.dataframe(format_top_trades(top_ganhos), hide_index=True)
+            else:
+                st.info("Nenhum dado para melhores operações.")
         
         with col_top2:
             st.subheader("Piores Operações")
-            if not df_filtrado.empty:
+            if not df_filtrado.empty and 'RESULTADO_LIQUIDO' in df_filtrado.columns:
                 top_perdas = df_filtrado.nsmallest(5, 'RESULTADO_LIQUIDO')[['ATIVO', 'ABERTURA', 'QUANTIDADE', 'RESULTADO_LIQUIDO']]
-                top_perdas['ABERTURA'] = top_perdas['ABERTURA'].dt.strftime('%d/%m/%Y')
-                top_perdas['RESULTADO_LIQUIDO'] = top_perdas['RESULTADO_LIQUIDO'].apply(formatar_moeda)
-                st.dataframe(top_perdas, hide_index=True)
+                st.dataframe(format_top_trades(top_perdas), hide_index=True)
+            else:
+                st.info("Nenhum dado para piores operações.")
         
         # --- Resultado vs Volume ---
         st.subheader("Resultado vs Volume de Contratos")
-        if 'QUANTIDADE' in df_filtrado.columns:
+        if 'QUANTIDADE' in df_filtrado.columns and 'RESULTADO_LIQUIDO' in df_filtrado.columns:
             scatter_data = df_filtrado[['QUANTIDADE', 'RESULTADO_LIQUIDO']]
             scatter_chart = alt.Chart(scatter_data).mark_circle(
                 stroke='white',
                 strokeWidth=1
             ).encode(
-                x='QUANTIDADE:Q',
-                y='RESULTADO_LIQUIDO:Q',
+                x=alt.X('QUANTIDADE:Q', title='Quantidade de Contratos'),
+                y=alt.Y('RESULTADO_LIQUIDO:Q', title='Resultado Líquido (R$)', axis=alt.Axis(format='.2f', formatType='currency')),
                 color=alt.condition(
                     alt.datum.RESULTADO_LIQUIDO >= 0,
                     alt.value(COLOR_POSITIVE),
                     alt.value(COLOR_NEGATIVE)
                 ),
-                tooltip=['QUANTIDADE', 'RESULTADO_LIQUIDO']
+                tooltip=[
+                    alt.Tooltip('QUANTIDADE:Q', title='Quantidade'),
+                    alt.Tooltip('RESULTADO_LIQUIDO:Q', title='Resultado (R$)', format='.2f', formatType='currency')
+                ]
             ).properties(height=300)
             st.altair_chart(scatter_chart.configure(background='transparent'), use_container_width=True)
+        else:
+            st.info("Dados insuficientes para gerar o Gráfico de Resultado vs Volume.")
 
 # Rodapé
 st.caption("📊 Trading Analytics • 2025 • Desenvolvido com Streamlit")
