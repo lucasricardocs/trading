@@ -229,9 +229,9 @@ def create_heatmap_trading_style(df_heatmap_final):
 
     # Heatmap principal
     heatmap = alt.Chart(full_df).mark_rect(
-        stroke='white',
+        stroke='black',
         strokeWidth=4,
-         cornerRadius=4
+         cornerRadius=3
     ).encode(
         x=alt.X('week_corrected:O', title=None, axis=None),
         y=alt.Y('day_display_name:N', sort=day_display_names, title=None,
