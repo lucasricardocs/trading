@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avaliação Nutricional de Atletas</title>
+    <!-- Libraries for export functionality -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PptxGenJS/3.12.0/pptxgen.bundle.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            overflow: hidden;
+        }
+
+        .presentation-container {
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .slide {
+            display: none;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 60px;
+            max-width: 900px;
+            width: 100%;
+            min-height: 600px;
+            animation: slideIn 0.6s ease-out;
+        }
+
+        .slide.active {
+            display: block;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .slide h1 {
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 700;
+        }
+
+        .slide h2 {
+            font-size: 2em;
+            color: #4a5568;
+            margin-bottom: 25px;
+            position: relative;
+            padding-bottom: 10px;
+        }
+
+        .slide h2::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 50px;
+            height: 3px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 2px;
+        }
+
+        .slide h3 {
+            font-size: 1.5em;
+            color: #2d3748;
+            margin: 20px 0 15px 0;
+            font-weight: 600;
+        }
+
+        .slide p, .slide li {
+            font-size: 1.1em;
+            line-height: 1.6;
+            color: #4a5568;
+            margin-bottom: 12px;
+        }
+
+        .slide ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .slide li {
+            position: relative;
+            padding-left: 30px;
+            margin-bottom: 15px;
+        }
+
+        .slide li::before {
+            content: '▸';
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .university-info {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .university-info h3 {
+            color: #667eea;
+            font-size: 1.3em;
+            margin-bottom: 5px;
+        }
+
+        .university-info p {
+            color: #4a5568;
+            font-size: 1.1em;
+        }
+
+        .formula-box {
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1em;
+            color: #2d3748;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .highlight-box {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin: 20px 0;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 1000;
+        }
+
+        .export-controls {
+            position: fixed;
+            top: 30px;
+            left: 30px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .export-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .export-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .export-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .loading::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: loading 1.5s infinite;
+        }
+
+        @keyframes loading {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .nav-btn {
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            color: #4a5568;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .nav-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .slide-counter {
+            position: fixed;
+            top: 30px;
+            right: 30px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: 600;
+            color: #4a5568;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .exercise-box {
+            background: linear-gradient(135deg, #ffeaa7, #fab1a0);
+            padding: 25px;
+            border-radius: 15px;
+            margin: 20px 0;
+            border-left: 5px solid #e17055;
+        }
+
+        .exercise-box h3 {
+            color: #2d3748;
+            margin-bottom: 15px;
+        }
+
+        .references {
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        .step {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #667eea;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 10px;
+            font-weight: bold;
+        }
+
+        @media (max-width: 768px) {
+            .slide {
+                padding: 30px;
+                margin: 10px;
+            }
+            
+            .slide h1 {
+                font-size: 2em;
+            }
+            
+            .slide h2 {
+                font-size: 1.5em;
+            }
+            
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="presentation-container">
+        <!-- Slide 1: Título -->
+        <div class="slide active">
+            <h1>AVALIAÇÃO NUTRICIONAL DE ATLETAS</h1>
+            <div class="university-info">
+                <h3>Universidade Federal de Goiás</h3>
+                <p>Faculdade de Nutrição</p>
+            </div>
+        </div>
+
+        <!-- Slide 2: Avaliação do atleta -->
+        <div class="slide">
+            <h2>Avaliação do atleta:</h2>
+            <ul>
+                <li>Dados pessoais</li>
+                <li>Identificação do nível de atividade física</li>
+                <li>Inquéritos alimentares</li>
+                <li>Exames bioquímicos</li>
+                <li>História clínica</li>
+                <li>Semiologia</li>
+                <li>Antropometria</li>
+                <li>Composição corporal</li>
+            </ul>
+        </div>
+
+        <!-- Slide 3: Introdução -->
+        <div class="slide">
+            <h2>INTRODUÇÃO</h2>
+            <div class="highlight-box">
+                <h3>Para minimizar erros:</h3>
+                <ul>
+                    <li>Equipamentos adequados e calibrados</li>
+                    <li>Padronização da técnica</li>
+                    <li>Avaliações longitudinais</li>
+                    <li>Associação com outros parâmetros</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Slide 4: Avaliação Antropométrica -->
+        <div class="slide">
+            <h2>AVALIAÇÃO ANTROPOMÉTRICA</h2>
+            <p><strong>Gordura subcutânea:</strong> ~50% da gordura armazenada do corpo.</p>
+            <div class="highlight-box">
+                <h3>Vantagens:</h3>
+                <ul>
+                    <li>Fornecem, de maneira simples e não invasiva, a estimativa de gordura corporal</li>
+                    <li>Controle de mudanças na composição corporal associadas aos efeitos da nutrição e dos exercícios</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Slide 5: Dobras Cutâneas -->
+        <div class="slide">
+            <h2>DOBRAS CUTÂNEAS</h2>
+            <p>Alterações agudas ou a curto prazo → a técnica antropométrica de mensuração de dobras cutâneas é <strong>rápida, reproduzível e fidedigna</strong>, além de fornecer informações significativas sobre a gordura corporal total e também sobre sua distribuição corporal.</p>
+        </div>
+
+        <!-- Slide 6: Lembretes Aferição -->
+        <div class="slide">
+            <h2>LEMBRETES: AFERIÇÃO DAS DOBRAS</h2>
+            <ul>
+                <li>Lado direito, em pé e com roupa apropriada</li>
+                <li>Série de 3 medidas, considerando-se a média</li>
+                <li>Identificar, medir e marcar criteriosamente o local</li>
+                <li>Dobra destacada 1 cm acima do ponto</li>
+            </ul>
+        </div>
+
+        <!-- Slide 7: Lembretes Aferição (continuação) -->
+        <div class="slide">
+            <h2>LEMBRETES: AFERIÇÃO DAS DOBRAS</h2>
+            <ul>
+                <li>Tecido subcutâneo diferenciado do tecido muscular através do dedo polegar e do indicador</li>
+                <li>Dobra pressionada durante a aferição</li>
+                <li>~2 segundos para leitura</li>
+            </ul>
+        </div>
+
+        <!-- Slide 8: Dobras em Atletas -->
+        <div class="slide">
+            <h2>DOBRAS CUTÂNEAS EM ATLETAS</h2>
+            <div class="grid-2">
+                <div>
+                    <ul>
+                        <li>PREGA CUTÂNEA TRICIPITAL</li>
+                        <li>PREGA CUTÂNEA BICIPITAL</li>
+                        <li>PREGA CUTÂNEA SUBESCAPULAR</li>
+                        <li>PREGA CUTÂNEA SUPRA-ILÍACA</li>
+                        <li>PREGA CUTÂNEA ABDOMINAL</li>
+                    </ul>
+                </div>
+                <div>
+                    <ul>
+                        <li>PREGA CUTÂNEA AXILAR</li>
+                        <li>PREGA CUTÂNEA DA COXA</li>
+                        <li>PREGA CUTÂNEA DA PANTURRILHA</li>
+                        <li>PREGA CUTÂNEA PEITORAL</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 9: Dobra Abdominal -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA ABDOMINAL</h2>
+            <div class="highlight-box">
+                <p>Aferida a <strong>2 cm à direita da cicatriz umbilical</strong>, no eixo longitudinal.</p>
+            </div>
+        </div>
+
+        <!-- Slide 10: Dobra Axilar Média -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA AXILAR MÉDIA</h2>
+            <div class="highlight-box">
+                <p>Ponto de intersecção de uma linha imaginária entre o <strong>apêndice xifoide</strong> e a <strong>linha mediana da axila</strong> (oblíqua).</p>
+            </div>
+        </div>
+
+        <!-- Slide 11: Dobra da Coxa -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA DA COXA</h2>
+            <ul>
+                <li>Perna à frente e peso corporal sustentado na perna de trás</li>
+                <li>Eixo longitudinal</li>
+                <li>Ponto médio entre a espinha ilíaca anterior e borda superior da patela</li>
+            </ul>
+        </div>
+
+        <!-- Slide 12: Dobra da Panturrilha -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA DA PANTURRILHA</h2>
+            <ul>
+                <li>Eixo longitudinal da perna, no ponto de maior circunferência da perna</li>
+                <li>Avaliado deve estar com o joelho em 90º de flexão, tornozelo em posição anatômica</li>
+            </ul>
+        </div>
+
+        <!-- Slide 13: Dobra Peitoral -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA PEITORAL</h2>
+            <ul>
+                <li>Primeiro terço da linha entre a linha axilar anterior e o mamilo (M)/ ponto médio (H)</li>
+                <li>Essa medida é feita obliquamente ao eixo longitudinal</li>
+            </ul>
+        </div>
+
+        <!-- Slide 14: Dobra Tricipital -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA TRICIPITAL</h2>
+            <ul>
+                <li>Medida na face posterior do braço entre o processo acromial da escápula e o processo do olecrano na ulna</li>
+                <li>O avaliado deve estar em pé, com os braços estendidos confortavelmente ao longo do corpo</li>
+                <li>A dobra cutânea é tracionada com o polegar e o indicador em plano vertical, aproximadamente 1 cm acima do nível marcado</li>
+            </ul>
+        </div>
+
+        <!-- Slide 15: Dobra Bicipital -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA BICIPITAL</h2>
+            <ul>
+                <li>Medida na face anterior do braço sobre o músculo (bíceps) no mesmo nível da dobra do tríceps, e circunferência braquial</li>
+                <li>O avaliado deve estar em pé, com os braços estendidos confortavelmente ao longo do corpo e a palma da mão voltada para cima</li>
+            </ul>
+        </div>
+
+        <!-- Slide 16: Dobra Suprailíaca -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA SUPRAILÍACA</h2>
+            <ul>
+                <li>O examinador posiciona-se lateralmente ao indivíduo</li>
+                <li>O indivíduo deve estar de pé e com a mão direita sobre o ombro esquerdo, cotovelo direito na altura dos ombros ou com o braço inclinado para trás</li>
+                <li>A dobra é localizada na linha axilar média imediatamente superior à crista ilíaca OU medida no ponto médio entre o último arco costal e a crista ilíaca, sobre a linha axilar anterior</li>
+            </ul>
+        </div>
+
+        <!-- Slide 17: Dobra Subescapular -->
+        <div class="slide">
+            <h2>DOBRA CUTÂNEA SUBESCAPULAR</h2>
+            <ul>
+                <li>A dobra é localizada 2 cm abaixo do ângulo inferior da escápula</li>
+                <li>Para localizar o ponto, o examinador deve apalpar a escápula, percorrendo a parte inferior e lateralmente ao longo da borda vertebral até o ângulo inferior ser identificado</li>
+                <li>Para facilitar a localização, peça ao avaliado que coloque o braço para trás, mas depois volte a posição inicial</li>
+            </ul>
+        </div>
+
+        <!-- Slide 18: Composição Corporal -->
+        <div class="slide">
+            <h2>COMPOSIÇÃO CORPORAL</h2>
+            <ul>
+                <li>Utilizar equações de predição a partir dos resultados obtidos na aferição das dobras</li>
+                <li>Exemplo: protocolo de 7 dobras</li>
+                <li>Densidade corporal</li>
+            </ul>
+        </div>
+
+        <!-- Slide 19: % Gordura das Dobras -->
+        <div class="slide">
+            <h2>%GORDURA A PARTIR DAS DOBRAS CUTÂNEAS</h2>
+            <p>Propõe equações para a estimativa da densidade corporal de homens, utilizando a soma de 7 dobras, além da idade.</p>
+        </div>
+
+        <!-- Slide 20: Jackson & Pollock Homens -->
+        <div class="slide">
+            <h2>JACKSON & POLLOCK (1978)</h2>
+            <h3>Protocolo 7 DOBRAS HOMENS:</h3>
+            <div class="formula-box">
+                <p><strong>Dc = 1,112 - 0,00043499 (X1) + 0,00000055 (X1²) - 0,00028826 (X3)</strong></p>
+                <p>X1 = soma das 7 dobras: peitoral, axilar média, tríceps, subescapular, abdominal, suprailíaca e coxa</p>
+                <p>X3 = idade, em anos</p>
+            </div>
+        </div>
+
+        <!-- Slide 21: Jackson & Pollock Mulheres -->
+        <div class="slide">
+            <h2>JACKSON, POLLOCK & WARD (1980)</h2>
+            <p>Equação para estimativa da densidade corporal de mulheres, utilizando a soma de 7 dobras cutâneas e idade:</p>
+            <div class="formula-box">
+                <p><strong>Dc = 1,097 - 0,00046971 x (X1) + 0,00000056 x (X1²) - 0,00012828 x (X3)</strong></p>
+                <p>X1 = soma das 7 dobras: peitoral, axilar média, tríceps, subescapular, abdominal, suprailíaca e coxa</p>
+                <p>X3 = idade, em anos</p>
+            </div>
+        </div>
+
+        <!-- Slide 22: Protocolo Guedes -->
+        <div class="slide">
+            <h2>PROTOCOLO DE GUEDES, 1994</h2>
+            <p><strong>3 dobras: características brasileiras</strong></p>
+            <div class="grid-2">
+                <div>
+                    <h3>Homens:</h3>
+                    <p>Tríceps, supra-ilíaca e abdômen</p>
+                    <div class="formula-box">
+                        <p><strong>Dens. Corp. = 1,17136 - 0,06706 log (TR + SI + AB)</strong></p>
+                    </div>
+                </div>
+                <div>
+                    <h3>Mulheres:</h3>
+                    <p>Subescapular, supra-ilíaca e coxa</p>
+                    <div class="formula-box">
+                        <p><strong>Dens. corp = 1,16650- 0,07063 log (CX + SI+ SB)</strong></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 23: % Gordura Corporal -->
+        <div class="slide">
+            <h2>% GORDURA CORPORAL A PARTIR DAS DOBRAS CUTÂNEAS</h2>
+            <div class="step-indicator">
+                <div class="step">1</div>
+                <div class="step">2</div>
+                <div class="step">3</div>
+            </div>
+            <ul>
+                <li>Definição do protocolo a ser utilizado</li>
+                <li>Cálculo da densidade corporal</li>
+                <li>Conversão da densidade em porcentagem de gordura</li>
+            </ul>
+        </div>
+
+        <!-- Slide 24: Fórmula de Siri -->
+        <div class="slide">
+            <h2>FÓRMULA DE SIRI</h2>
+            <p>Fórmula original para homens de 20 a 50 anos</p>
+            <div class="formula-box">
+                <p><strong>%G = [(4,95/Dc) – 4,50] x 100</strong></p>
+            </div>
+        </div>
+
+        <!-- Slide 25: Fórmula de Siri Modificada -->
+        <div class="slide">
+            <h2>FÓRMULA DE SIRI MODIFICADA</h2>
+            <p>Fórmula adaptada para indivíduos treinados</p>
+            <div class="formula-box">
+                <p><strong>%G = (521/Dc) – 478</strong></p>
+            </div>
+        </div>
+
+        <!-- Slide 26: Modelo de Behnke -->
+        <div class="slide">
+            <h2>MODELO DE BEHNKE PARA COMPOSIÇÃO CORPORAL</h2>
+            <p><strong>Albert Behnke:</strong> médico da marinha dos EUA (1942)</p>
+            <ul>
+                <li>Dimensões físicas de indivíduos medidos em levantamentos antropométricos civis e militares com dados de estudos de composição e estrutura de tecidos</li>
+                <li>Padrões de referência por sexo: composição corporal "normal"</li>
+            </ul>
+        </div>
+
+        <!-- Slide 27: Componentes da Massa Corporal -->
+        <div class="slide">
+            <h2>COMPONENTES DA MASSA CORPORAL</h2>
+            <ul>
+                <li><strong>Massa corporal magra</strong> (músculo e osso)</li>
+                <li><strong>Gordura corporal total</strong> (gordura de reserva e gordura essencial)</li>
+            </ul>
+            <div class="highlight-box">
+                <p><strong>Gordura essencial:</strong> coração, pulmões, fígado, baço, rins, intestino, músculos, sistema nervoso central e medula óssea.</p>
+                <p><strong>Gordura de reserva:</strong> tecido adiposo, gordura visceral e subcutânea.</p>
+            </div>
+        </div>
+
+        <!-- Slide 28: Padrões Mínimos -->
+        <div class="slide">
+            <h2>PADRÕES MÍNIMOS DE MAGREZA</h2>
+            <p>Limite biológico → comprometimento do estado de saúde e alteração de funções fisiológicas.</p>
+            <div class="highlight-box">
+                <h3>Referências:</h3>
+                <ul>
+                    <li><strong>Para homens:</strong> 3%</li>
+                    <li><strong>Para mulheres:</strong> 12% (3% de gordura essencial + 9% sexo-específica)</li>
+                </ul>
+                <p>→ Diferentes modalidades esportivas: referências de valores médios de gordura corporal.</p>
+                <p><strong>Ex.:</strong> Mulheres = ballet, ginástica, remo, patinação, corrida, triátlon: 8–15%</p>
+            </div>
+        </div>
+
+        <!-- Slide 29: Métodos Disponíveis -->
+        <div class="slide">
+            <h2>AVALIAÇÃO DA COMPOSIÇÃO CORPORAL</h2>
+            <h3>MÉTODOS DISPONÍVEIS</h3>
+            <div class="grid-2">
+                <div>
+                    <ul>
+                        <li>Dobras cutâneas</li>
+                        <li>Pesagem hidrostática</li>
+                        <li>Bioimpedância</li>
+                        <li>Absorciometria com raios X de dupla energia (DEXA)</li>
+                        <li>Pletismografia</li>
+                    </ul>
+                </div>
+                <div>
+                    <ul>
+                        <li>Ultrassom</li>
+                        <li>Tomografia computadorizada</li>
+                        <li>Ressonância magnética</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 30: Exercício -->
+        <div class="slide">
+            <h2>PARA TREINAR...</h2>
+            <div class="exercise-box">
+                <p><strong>Suponha o seguinte atleta:</strong> sexo masculino, jogador de voleibol, 28 anos, 1,90 m, 87 kg, somatório de 7 dobras = 110,5 mm.</p>
+                <ol style="list-style: decimal; padding-left: 20px;">
+                    <li>Calcule o IMC e faça a interpretação do valor encontrado.</li>
+                    <li>Calcule a densidade corporal segundo o protocolo de 7 dobras de Jackson e Pollock (1978) e o percentual de gordura segundo Siri para indivíduos treinados.</li>
+                    <li>A partir do dado de percentual de gordura, calcule a massa de gordura e a massa livre de gordura em quilogramas, gordura essencial e de estoque.</li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Slide 31: Referências -->
+        <div class="slide">
+            <h2>REFERÊNCIAS</h2>
+            <div class="references">
+                <ul>
+                    <li>COZZOLINO, Silvia Maria Franciscato; COMINETTI, Cristiane. Bases bioquímicas e fisiológicas da nutrição: nas diferentes fases da vida, na saúde e na doença. -- Barueri, SP: Manole, 2013.</li>
+                    <li>HOUSTON, Michael E. Princípios da bioquímica para a ciência do exercício. –3ª ed. – SÃO PAULO: ROCA, 2008.</li>
+                    <li>OLIVEIRA, José Eduardo Dutra De.; MARCHINI, J. Sérgio. Ciências nutricionais. São Paulo: Sarvier, 2008.</li>
+                    <li>McARDLE, W. D.; KATCH, F. I.; KATCH, V. L. (Ed.). Fisiologia do Exercício: Energia, Nutrição e Desempenho Humano. 8. ed. Rio de Janeiro: Guanabara Koogan, 2016.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="export-controls">
+        <button class="export-btn" onclick="exportToPDF()" id="pdfBtn">
+            📄 Exportar PDF
+        </button>
+        <button class="export-btn" onclick="exportToPPTX()" id="pptxBtn">
+            📊 Exportar PPTX
+        </button>
+    </div>
+
+    <div class="slide-counter">
+        <span id="currentSlide">1</span> / <span id="totalSlides">31</span>
+    </div>
+
+    <div class="navigation">
+        <button class="nav-btn" id="prevBtn" onclick="changeSlide(-1)">← Anterior</button>
+        <button class="nav-btn" id="nextBtn" onclick="changeSlide(1)">Próximo →</button>
+    </div>
+
+    <script>
+        let currentSlideIndex = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+
+        document.getElementById('totalSlides').textContent = totalSlides;
+
+        function showSlide(index) {
+            slides.forEach(slide => slide.classList.remove('active'));
+            slides[index].classList.add('active');
+            
+            document.getElementById('currentSlide').textContent = index + 1;
+            
+            // Update navigation buttons
+            document.getElementById('prevBtn').disabled = index === 0;
+            document.getElementById('nextBtn').disabled = index === totalSlides - 1;
+        }
+
+        function changeSlide(direction) {
+            const newIndex = currentSlideIndex + direction;
+            if (newIndex >= 0 && newIndex < totalSlides) {
+                currentSlideIndex = newIndex;
+                showSlide(currentSlideIndex);
+            }
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function
