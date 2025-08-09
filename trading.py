@@ -18,8 +18,8 @@ except ImportError:
 # --- Configurações ---
 # ATENÇÃO: SUBSTITUA COM SEUS DADOS REAIS
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM' # ID da sua planilha
-WORKSHEET_NAME_PRINCIPAL = 'Data' # Nome da aba do dashboard principal
-WORKSHEET_NAME_DADOS = 'Dados' # Nome da aba da análise de conteúdo
+WORKSHEET_NAME_PRINCIPAL = 'data' # Nome da aba do dashboard principal
+WORKSHEET_NAME_DADOS = 'dados' # Nome da aba da análise de conteúdo
 CONCURSO_DATE = datetime(2025, 9, 28) # Data do concurso
 
 # Dados do edital
