@@ -19,8 +19,9 @@ WORKSHEET_NAME = 'Planilha1'
 CONCURSO_DATE = datetime(2025, 9, 28) # Data do concurso
 
 # Dados do edital (para calcular o progresso ponderado)
+# CHAVE "MATÉRIA" FOI ALTERADA PARA "DISCIPLINAS"
 ED_DATA = {
-    'Matéria': [
+    'Disciplinas': [
         'LÍNGUA PORTUGUESA', 
         'RLM', 
         'INFORMÁTICA', 
@@ -74,10 +75,7 @@ def get_worksheet():
 
 @st.cache_data(ttl=600)
 def read_sales_data():
-    """
-    Lê todos os registros da planilha e retorna como DataFrame.
-    Ajustado para lidar com o problema de cabeçalhos duplicados.
-    """
+    """Lê todos os registros da planilha e retorna como DataFrame."""
     worksheet = get_worksheet()
     if not worksheet:
         st.info("⚠️ Usando dados de exemplo, pois não foi possível conectar ao Google Sheets.")
@@ -95,7 +93,8 @@ def read_sales_data():
         for materia, conteudos in conteudos_do_edital.items():
             for conteudo in conteudos:
                 status = 'Feito' if np.random.rand() < 0.5 else 'Pendente'
-                sample_data.append({'Matéria': materia, 'Conteúdo': conteudo, 'Status': status})
+                # ALTERADO PARA USAR "DISCIPLINAS" E "CONTEÚDOS"
+                sample_data.append({'Disciplinas': materia, 'Conteúdos': conteudo, 'Status': status})
         
         return pd.DataFrame(sample_data)
 
@@ -110,14 +109,14 @@ def read_sales_data():
         
         df = pd.DataFrame(records, columns=headers)
         
-        required_columns = ['Matéria', 'Conteúdo', 'Status']
+        # COLUNAS OBRIGATÓRIAS ALTERADAS
+        required_columns = ['Disciplinas', 'Conteúdos', 'Status']
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
             st.error(f"Colunas obrigatórias não encontradas: {missing_columns}. Verifique o nome das colunas na planilha.")
             return pd.DataFrame()
             
-        # Limpeza e validação
         df['Status'] = df['Status'].astype(str).str.strip()
         df = df[df['Status'].isin(['Feito', 'Pendente'])]
         
@@ -133,7 +132,8 @@ def calculate_weighted_metrics(df_dados):
     """Calcula métricas de progresso ponderado com base no edital."""
     df_edital = pd.DataFrame(ED_DATA)
     
-    if df_dados.empty or 'Matéria' not in df_dados.columns or 'Status' not in df_dados.columns:
+    # AGORA PROCURA POR "DISCIPLINAS"
+    if df_dados.empty or 'Disciplinas' not in df_dados.columns or 'Status' not in df_dados.columns:
         st.error("Dados insuficientes para calcular métricas.")
         return pd.DataFrame(), 0.0
 
@@ -142,12 +142,14 @@ def calculate_weighted_metrics(df_dados):
     df_dados['Feito'] = (df_dados['Status'].str.lower() == 'feito').astype(int)
     df_dados['Pendente'] = (df_dados['Status'].str.lower() == 'pendente').astype(int)
     
-    df_progresso_summary = df_dados.groupby('Matéria', observed=False).agg(
+    # AGRUPA POR "DISCIPLINAS"
+    df_progresso_summary = df_dados.groupby('Disciplinas', observed=False).agg(
         Conteudos_Feitos=('Feito', 'sum'),
         Conteudos_Pendentes=('Pendente', 'sum')
     ).reset_index()
     
-    df_final = pd.merge(df_edital, df_progresso_summary, on='Matéria', how='left').fillna(0)
+    # FAZ O MERGE COM OS DADOS DO EDITAL
+    df_final = pd.merge(df_edital, df_progresso_summary, on='Disciplinas', how='left').fillna(0)
     
     df_final['Total_Conteudos_Real'] = df_final['Conteudos_Feitos'] + df_final['Conteudos_Pendentes']
     df_final['Pontos_por_Conteudo'] = np.where(
@@ -235,16 +237,18 @@ def create_altair_donut_chart(data_row):
     ).encode(text=alt.Text('text:N'))
     
     return (pie + text_progresso).properties(
+        # AGORA USA O NOME "DISCIPLINAS"
         title=alt.TitleParams(
-            text=data_row['Matéria'], fontSize=14, fontWeight='bold', anchor='start'
+            text=data_row['Disciplinas'], fontSize=14, fontWeight='bold', anchor='start'
         ),
         width=200, height=200
     ).resolve_scale(color='independent')
 
 def create_altair_bar_chart(df_summary):
     """Cria gráfico de barras horizontal do progresso por disciplina."""
+    # AGRUPA POR "DISCIPLINAS"
     df_melted = df_summary.melt(
-        id_vars=['Matéria'], 
+        id_vars=['Disciplinas'], 
         value_vars=['Conteudos_Feitos', 'Conteudos_Pendentes'],
         var_name='Status', 
         value_name='Conteudos'
@@ -256,9 +260,10 @@ def create_altair_bar_chart(df_summary):
         stroke='white', strokeWidth=1
     ).encode(
         x=alt.X('Conteudos:Q', title='Número de Conteúdos'),
-        y=alt.Y('Matéria:N', sort='-x', title=''),
+        # AGRUPA POR "DISCIPLINAS"
+        y=alt.Y('Disciplinas:N', sort='-x', title=''),
         color=alt.Color('Status_Display:N', scale=alt.Scale(domain=['Concluído', 'Pendente'], range=['#667eea', '#e74c3c']), legend=alt.Legend(title="Status", orient="top")),
-        tooltip=['Matéria:N', 'Status_Display:N', 'Conteudos:Q']
+        tooltip=['Disciplinas:N', 'Status_Display:N', 'Conteudos:Q']
     ).properties(title="Progresso por Disciplina", height=300)
     
     return chart
@@ -275,7 +280,7 @@ def create_priority_chart(df_summary):
         y=alt.Y('Peso:Q', title='Peso da Disciplina'),
         size=alt.Size('Prioridade:Q', title='Prioridade', scale=alt.Scale(range=[100, 400])),
         color=alt.Color('Prioridade:Q', scale=alt.Scale(scheme='reds'), legend=None),
-        tooltip=['Matéria:N', 'Progresso_Ponderado:Q', 'Peso:Q', 'Prioridade:Q']
+        tooltip=['Disciplinas:N', 'Progresso_Ponderado:Q', 'Peso:Q', 'Prioridade:Q']
     ).properties(title="Matriz de Prioridade de Estudo", width=400, height=300)
     
     return chart
@@ -335,7 +340,6 @@ df_dados = read_sales_data()
 if not df_dados.empty:
     df_final, progresso_ponderado_geral = calculate_weighted_metrics(df_dados)
     
-    # Métricas principais
     st.markdown('<div class="section-header">📈 Resumo Geral</div>', unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
     
@@ -357,13 +361,14 @@ if not df_dados.empty:
     
     # Filtro de disciplinas
     st.markdown('<div class="section-header">🎨 Personalizar Visualização</div>', unsafe_allow_html=True)
-    disciplinas_disponiveis = list(df_final['Matéria'].unique())
+    # FILTRO POR "DISCIPLINAS"
+    disciplinas_disponiveis = list(df_final['Disciplinas'].unique())
     disciplinas_selecionadas = st.multiselect(
         "Selecione as disciplinas para visualização:", disciplinas_disponiveis, default=disciplinas_disponiveis
     )
     
     if disciplinas_selecionadas:
-        df_final_filtered = df_final[df_final['Matéria'].isin(disciplinas_selecionadas)]
+        df_final_filtered = df_final[df_final['Disciplinas'].isin(disciplinas_selecionadas)]
         
         st.markdown('<div class="section-header">🎯 Progresso por Disciplina</div>', unsafe_allow_html=True)
         num_cols = min(3, len(df_final_filtered))
@@ -387,13 +392,13 @@ if not df_dados.empty:
         
         with st.expander("📋 Dados Detalhados", expanded=False):
             st.markdown("**Resumo por Disciplina:**")
-            display_columns = ['Matéria', 'Conteudos_Feitos', 'Conteudos_Pendentes', 'Progresso_Ponderado', 'Peso']
+            display_columns = ['Disciplinas', 'Conteudos_Feitos', 'Conteudos_Pendentes', 'Progresso_Ponderado', 'Peso']
             df_display = df_final_filtered[display_columns].copy()
             df_display.columns = ['Disciplina', 'Feitos', 'Pendentes', 'Progresso (%)', 'Peso']
             st.dataframe(df_display, use_container_width=True, hide_index=True)
             
             st.markdown("**Todos os Conteúdos:**")
-            st.dataframe(df_dados[df_dados['Matéria'].isin(disciplinas_selecionadas)], use_container_width=True, hide_index=True)
+            st.dataframe(df_dados[df_dados['Disciplinas'].isin(disciplinas_selecionadas)], use_container_width=True, hide_index=True)
     
     else:
         st.info("Selecione pelo menos uma disciplina para visualizar os dados.")
