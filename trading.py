@@ -7,7 +7,7 @@ from google.oauth2.service_account import Credentials
 
 # --- Configurações Atualizadas ---
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM'
-WORKSHEET_NAME = 'Página1'  # Nome padrão da planilha
+WORKSHEET_NAME = 'Data'  # Nome padrão da planilha
 
 # --- Funções de Autenticação ---
 @st.cache_resource
