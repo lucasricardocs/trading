@@ -5,10 +5,18 @@ import pandas as pd
 import altair as alt
 import numpy as np
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import SpreadsheetNotFound
 import warnings
+import traceback
+import locale
+
+# Configurar localização para português
+try:
+    locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+except:
+    locale.setlocale(locale.LC_TIME, 'pt_BR')
 
 # Suprimir warnings
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*observed=False.*")
@@ -32,11 +40,24 @@ st.markdown("""
     .main-header {
         text-align: center;
         padding: 2rem 0;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        border-radius: 10px;
+        border-radius: 15px;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .main-header::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle at top right, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
+        z-index: 1;
     }
     
     /* Cards de métricas */
@@ -44,14 +65,34 @@ st.markdown("""
         background: white;
         padding: 1.5rem;
         border-radius: 15px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        border-left: 5px solid #667eea;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+        border-left: 4px solid #667eea;
         margin: 0.5rem 0;
-        transition: transform 0.3s ease;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+    }
+    
+    .metric-card::after {
+        content: "";
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(102,126,234,0.05) 0%, rgba(255,255,255,0) 70%);
+        z-index: -1;
+        transition: all 0.5s ease;
     }
     
     .metric-card:hover {
         transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(102,126,234,0.15);
+    }
+    
+    .metric-card:hover::after {
+        transform: scale(1.5);
     }
     
     /* Container dos gráficos */
@@ -59,15 +100,26 @@ st.markdown("""
         background: white;
         padding: 1.5rem;
         border-radius: 15px;
-        box-shadow: 0 6px 25px rgba(0,0,0,0.1);
-        border: 3px solid #f8f9fa;
+        box-shadow: 0 6px 25px rgba(0,0,0,0.08);
+        border: 1px solid #f0f4f8;
         margin: 1rem 0;
         transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .chart-container::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 5px;
+        background: linear-gradient(90deg, #667eea, #764ba2);
     }
     
     .chart-container:hover {
-        border-color: #667eea;
-        box-shadow: 0 8px 35px rgba(102,126,234,0.15);
+        box-shadow: 0 10px 35px rgba(102,126,234,0.15);
     }
     
     /* Títulos dos gráficos */
@@ -76,64 +128,177 @@ st.markdown("""
         font-size: 1.3rem;
         font-weight: 700;
         color: #2c3e50;
-        margin-bottom: 1rem;
-        padding: 0.5rem;
-        background: linear-gradient(90deg, #f8f9fa, #e9ecef);
-        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        padding: 0.8rem;
+        background: linear-gradient(to right, #f8f9fa, #eef2f7);
+        border-radius: 10px;
+        position: relative;
         border-left: 4px solid #667eea;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }
     
     /* Info boxes */
     .info-box {
         background: linear-gradient(135deg, #667eea, #764ba2);
         color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
+        padding: 1.2rem;
+        border-radius: 12px;
+        margin: 0.8rem 0;
         text-align: center;
         font-weight: 600;
+        box-shadow: 0 4px 15px rgba(102,126,234,0.2);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .info-box::before {
+        content: "";
+        position: absolute;
+        top: -20%;
+        left: -20%;
+        width: 150%;
+        height: 150%;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
     }
     
     /* Progress info */
     .progress-info {
-        background: #f8f9fa;
-        padding: 1rem;
-        border-radius: 10px;
+        background: #f8fafc;
+        padding: 1.2rem;
+        border-radius: 12px;
         text-align: center;
-        margin-top: 1rem;
-        border: 2px solid #e9ecef;
-        font-size: 0.95rem;
+        margin-top: 1.5rem;
+        border: 2px solid #eef2f7;
+        font-size: 1rem;
+        position: relative;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.03);
     }
     
     /* Section headers */
     .section-header {
-        background: linear-gradient(90deg, #667eea, #764ba2);
+        background: linear-gradient(135deg, #667eea, #764ba2);
         color: white;
-        padding: 1rem 2rem;
-        border-radius: 50px;
+        padding: 1.2rem 2.5rem;
+        border-radius: 12px;
         text-align: center;
-        margin: 2rem 0 1rem 0;
-        font-size: 1.5rem;
+        margin: 2.5rem 0 1.5rem 0;
+        font-size: 1.6rem;
         font-weight: 700;
-        box-shadow: 0 4px 15px rgba(102,126,234,0.3);
+        box-shadow: 0 5px 20px rgba(102,126,234,0.3);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .section-header::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E");
+        opacity: 0.3;
     }
     
     /* Sidebar styling */
     .sidebar-content {
-        background: linear-gradient(180deg, #667eea, #764ba2);
+        background: linear-gradient(180deg, #4a6fc9, #5b3f8e);
         color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .sidebar-content::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0));
     }
     
     /* Debug panel */
     .debug-panel {
-        background: #f1f3f4;
-        border: 2px dashed #6c757d;
+        background: #f8fafc;
+        border: 2px dashed #c5d5f8;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.05);
+    }
+    
+    /* Botões */
+    .stButton>button {
+        background: linear-gradient(135deg, #667eea, #764ba2) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 0.8rem 1.5rem !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 10px rgba(102,126,234,0.3) !important;
+    }
+    
+    .stButton>button:hover {
+        transform: translateY(-3px) !important;
+        box-shadow: 0 6px 15px rgba(102,126,234,0.4) !important;
+    }
+    
+    /* Progress bars */
+    .progress-bar {
+        height: 20px;
+        background: #e9ecef;
         border-radius: 10px;
-        padding: 1rem;
+        overflow: hidden;
         margin: 1rem 0;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .progress-fill {
+        height: 100%;
+        border-radius: 10px;
+        transition: width 0.5s ease;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    /* Footer */
+    .dashboard-footer {
+        background: linear-gradient(135deg, #4a6fc9, #5b3f8e);
+        color: white;
+        padding: 2.5rem;
+        border-radius: 15px;
+        margin-top: 3rem;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 8px 25px rgba(102,126,234,0.3);
+    }
+    
+    .dashboard-footer::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E");
+        opacity: 0.2;
+    }
+    
+    /* Responsividade */
+    @media (max-width: 768px) {
+        .section-header {
+            font-size: 1.3rem;
+            padding: 1rem;
+        }
+        
+        .chart-title {
+            font-size: 1.1rem;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -154,14 +319,17 @@ DISCIPLINA_COLORS = [
 @st.cache_resource
 def get_google_auth():
     """Autenticação com Google Sheets"""
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
-              'https://www.googleapis.com/auth/drive']
+    SCOPES = [
+        'https://www.googleapis.com/auth/spreadsheets.readonly',
+        'https://www.googleapis.com/auth/drive.readonly'
+    ]
     try:
-        if "google_credentials" not in st.secrets:
+        # Corrigido para usar a chave correta do Streamlit
+        if "gcp_service_account" not in st.secrets:
             st.error("Credenciais do Google não encontradas nos secrets do Streamlit")
             return None
         
-        credentials_dict = st.secrets["google_credentials"]
+        credentials_dict = st.secrets["gcp_service_account"]
         if not credentials_dict:
             st.error("Credenciais vazias")
             return None
@@ -191,69 +359,62 @@ def get_worksheet():
     return None
 
 # --- Funções de Dados ---
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300, show_spinner="Atualizando dados...")
 def load_data():
     """Carregar dados da planilha"""
     worksheet = get_worksheet()
     if worksheet:
         try:
-            # Método alternativo para lidar com cabeçalhos duplicados
             all_values = worksheet.get_all_values()
             
-            if not all_values:
-                st.warning("Planilha vazia")
+            if not all_values or len(all_values) < 2:
+                st.warning("Planilha vazia ou com poucos dados")
                 return pd.DataFrame()
             
-            # Pegar a primeira linha como cabeçalho e limpar
             headers = all_values[0]
             
             # Limpar cabeçalhos vazios e duplicados
             clean_headers = []
             for i, header in enumerate(headers):
-                if header.strip():  # Se não estiver vazio
+                if header.strip():
                     clean_headers.append(header.strip())
                 else:
-                    clean_headers.append(f"Coluna_{i}")  # Nome padrão para colunas vazias
+                    clean_headers.append(f"Coluna_{i}")
             
-            # Pegar os dados (excluindo cabeçalho)
             data_rows = all_values[1:]
             
             # Criar DataFrame
             df = pd.DataFrame(data_rows, columns=clean_headers)
             
-            # Verificar se as colunas necessárias existem
+            # Verificar e renomear colunas necessárias
+            column_mapping = {}
+            for col in df.columns:
+                col_lower = col.lower()
+                if 'matéria' in col_lower or 'materia' in col_lower or 'disciplina' in col_lower:
+                    column_mapping[col] = 'Matéria'
+                elif 'status' in col_lower or 'situação' in col_lower or 'situacao' in col_lower:
+                    column_mapping[col] = 'STATUS'
+            
+            df = df.rename(columns=column_mapping)
+            
+            # Verificar colunas obrigatórias
             required_columns = ['Matéria', 'STATUS']
             missing_columns = [col for col in required_columns if col not in df.columns]
             
             if missing_columns:
-                # Tentar mapear colunas similares
-                column_mapping = {}
-                for col in df.columns:
-                    col_lower = col.lower()
-                    if 'matéria' in col_lower or 'materia' in col_lower or 'disciplina' in col_lower:
-                        column_mapping[col] = 'Matéria'
-                    elif 'status' in col_lower or 'situação' in col_lower or 'situacao' in col_lower:
-                        column_mapping[col] = 'STATUS'
-                
-                # Renomear colunas
-                df = df.rename(columns=column_mapping)
-                
-                # Verificar novamente
-                missing_columns = [col for col in required_columns if col not in df.columns]
-                if missing_columns:
-                    st.error(f"Colunas obrigatórias não encontradas: {missing_columns}")
-                    st.info(f"Colunas disponíveis: {list(df.columns)}")
-                    return pd.DataFrame()
+                st.error(f"Colunas obrigatórias não encontradas: {missing_columns}")
+                st.info(f"Colunas disponíveis: {list(df.columns)}")
+                return pd.DataFrame()
             
-            # Limpar dados vazios
+            # Limpar dados
             df = df.dropna(subset=['Matéria'])
             df = df[df['Matéria'] != '']
             
-            # Limpar valores de STATUS
+            # Normalizar valores de STATUS
             df['STATUS'] = df['STATUS'].str.strip().str.upper()
             
             # Filtrar apenas status válidos
-            valid_status = ['FEITO', 'PENDENTE']
+            valid_status = ['FEITO', 'PENDENTE', 'EM ANDAMENTO', 'REVISÃO']
             df = df[df['STATUS'].isin(valid_status)]
             
             if df.empty:
@@ -264,34 +425,29 @@ def load_data():
             
         except Exception as e:
             st.error(f"Erro ao carregar dados: {e}")
-            # Adicionar informações de debug
             with st.expander("🔍 Informações de Debug"):
-                st.write(f"Erro detalhado: {str(e)}")
-                try:
-                    all_values = worksheet.get_all_values()
-                    if all_values:
-                        st.write("Primeira linha (cabeçalhos):")
-                        st.write(all_values[0])
-                        st.write(f"Total de linhas: {len(all_values)}")
-                except:
-                    st.write("Não foi possível acessar os dados da planilha")
+                st.error(f"Erro detalhado: {type(e).__name__} - {str(e)}")
+                st.code(traceback.format_exc(), language='python')
             return pd.DataFrame()
     return pd.DataFrame()
 
 def process_data_for_charts(df):
-    """Processar dados para os gráficos de rosca"""
+    """Processar dados para os gráficos usando groupby"""
     if df.empty:
         return {}
     
-    # Agrupar por matéria e contar status
+    # Agrupar por matéria e status
+    grouped = df.groupby(['Matéria', 'STATUS']).size().unstack(fill_value=0)
+    
     disciplinas_stats = {}
     
-    for disciplina in df['Matéria'].unique():
-        disciplina_data = df[df['Matéria'] == disciplina]
+    for disciplina, row in grouped.iterrows():
+        feito = row.get('FEITO', 0)
+        pendente = row.get('PENDENTE', 0)
+        em_andamento = row.get('EM ANDAMENTO', 0)
+        revisao = row.get('REVISÃO', 0)
         
-        feito = len(disciplina_data[disciplina_data['STATUS'] == 'FEITO'])
-        pendente = len(disciplina_data[disciplina_data['STATUS'] == 'PENDENTE'])
-        total = feito + pendente
+        total = feito + pendente + em_andamento + revisao
         
         if total > 0:
             percentual_feito = (feito / total) * 100
@@ -299,6 +455,8 @@ def process_data_for_charts(df):
             disciplinas_stats[disciplina] = {
                 'feito': feito,
                 'pendente': pendente,
+                'em_andamento': em_andamento,
+                'revisao': revisao,
                 'total': total,
                 'percentual_feito': percentual_feito
             }
@@ -306,22 +464,22 @@ def process_data_for_charts(df):
     return disciplinas_stats
 
 # --- Funções de Visualização ---
-def create_donut_chart(feito, pendente, disciplina, color_scheme=None):
+def create_donut_chart(feito, pendente, em_andamento, revisao, disciplina, color_scheme=None):
     """Criar gráfico de rosca com Altair"""
     # Dados para o gráfico
     data = pd.DataFrame([
         {'categoria': 'Feito', 'valor': feito, 'disciplina': disciplina},
-        {'categoria': 'Pendente', 'valor': pendente, 'disciplina': disciplina}
+        {'categoria': 'Pendente', 'valor': pendente, 'disciplina': disciplina},
+        {'categoria': 'Em Andamento', 'valor': em_andamento, 'disciplina': disciplina},
+        {'categoria': 'Revisão', 'valor': revisao, 'disciplina': disciplina}
     ])
     
     # Cores padrão se não especificadas
     if color_scheme is None:
-        color_scheme = [COLOR_POSITIVE, COLOR_NEGATIVE]
+        color_scheme = [COLOR_POSITIVE, COLOR_NEGATIVE, "#ffc107", "#9c27b0"]
     
     # Gráfico de rosca
-    chart = alt.Chart(data).add_selection(
-        alt.selection_single()
-    ).mark_arc(
+    chart = alt.Chart(data).mark_arc(
         innerRadius=60,
         outerRadius=90,
         stroke='white',
@@ -332,14 +490,14 @@ def create_donut_chart(feito, pendente, disciplina, color_scheme=None):
         color=alt.Color(
             'categoria:N',
             scale=alt.Scale(
-                domain=['Feito', 'Pendente'],
+                domain=['Feito', 'Pendente', 'Em Andamento', 'Revisão'],
                 range=color_scheme
             ),
             legend=alt.Legend(
                 orient='bottom',
-                titleFontSize=12,
+                title=None,
                 labelFontSize=11,
-                symbolSize=100,
+                symbolSize=150,
                 symbolType='circle'
             )
         ),
@@ -347,14 +505,7 @@ def create_donut_chart(feito, pendente, disciplina, color_scheme=None):
             alt.Tooltip('categoria:N', title='Status'),
             alt.Tooltip('valor:Q', title='Quantidade'),
             alt.Tooltip('disciplina:N', title='Disciplina')
-        ],
-        opacity=alt.condition(
-            alt.selection_single(),
-            alt.value(1.0),
-            alt.value(0.8)
-        )
-    ).resolve_scale(
-        color='independent'
+        ]
     ).properties(
         width=220,
         height=220
@@ -369,7 +520,7 @@ def create_summary_metrics(disciplinas_stats):
     
     total_feito = sum(stats['feito'] for stats in disciplinas_stats.values())
     total_pendente = sum(stats['pendente'] for stats in disciplinas_stats.values())
-    total_geral = total_feito + total_pendente
+    total_geral = sum(stats['total'] for stats in disciplinas_stats.values())
     percentual_geral = (total_feito / total_geral * 100) if total_geral > 0 else 0
     
     return total_feito, total_pendente, total_geral, percentual_geral
@@ -409,7 +560,8 @@ def create_progress_bar_chart(disciplinas_stats):
                 axis=alt.Axis(title=None, 
                             labelLimit=250, 
                             labelFontSize=12,
-                            labelFontWeight='bold')),
+                            labelFontWeight='bold'),
+                sort=alt.EncodingSortField(field='percentual', order='ascending')),
         color=alt.Color(
             'percentual:Q',
             scale=alt.Scale(
@@ -425,8 +577,8 @@ def create_progress_bar_chart(disciplinas_stats):
             alt.Tooltip('percentual:Q', title='Percentual (%)', format='.1f')
         ]
     ).properties(
-        width=600,
-        height=350
+        width=700,
+        height=400
     )
     
     return chart
@@ -441,12 +593,12 @@ def display_metric_card(title, value, delta=None, help_text="", icon="📊"):
     st.markdown(f"""
     <div class="metric-card">
         <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
-            <span style="font-size: 1.5rem; margin-right: 0.5rem;">{icon}</span>
-            <span style="color: #6c757d; font-size: 0.9rem; font-weight: 600;">{title}</span>
+            <span style="font-size: 1.8rem; margin-right: 0.8rem; opacity: 0.8;">{icon}</span>
+            <span style="color: #6c757d; font-size: 1rem; font-weight: 600;">{title}</span>
         </div>
-        <div style="font-size: 2rem; font-weight: bold; color: #2c3e50; margin-bottom: 0.5rem;">{value:,}</div>
+        <div style="font-size: 2.2rem; font-weight: bold; color: #2c3e50; margin-bottom: 0.5rem; letter-spacing: -0.5px;">{value}</div>
         {delta_html}
-        <div style="color: #6c757d; font-size: 0.8rem; margin-top: 0.5rem;">{help_text}</div>
+        <div style="color: #6c757d; font-size: 0.9rem; margin-top: 0.5rem;">{help_text}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -457,72 +609,62 @@ def main():
     # Calcular dias para a prova
     data_prova = date(2025, 9, 28)
     data_hoje = date.today()
-    dias_para_prova = (data_prova - data_hoje).days
+    dias_para_prova = max(0, (data_prova - data_hoje).days)
     
-    # Formatação da data atual
-    meses = [
-        "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
-    ]
-    dias_semana = [
-        "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", 
-        "sexta-feira", "sábado", "domingo"
-    ]
-    
-    data_formatada = f"{dias_semana[data_hoje.weekday()]}, {data_hoje.day} de {meses[data_hoje.month-1]} de {data_hoje.year}"
+    # Formatar data atual
+    data_formatada = datetime.now().strftime("%A, %d de %B de %Y").title()
     
     # Definir cor e ícone baseado nos dias restantes
     if dias_para_prova > 60:
-        cor_prazo = "#28a745"  # Verde - muito tempo
+        cor_prazo = "#28a745"  # Verde
         icone_prazo = "🟢"
         status_prazo = "Bastante tempo"
     elif dias_para_prova > 30:
-        cor_prazo = "#ffc107"  # Amarelo - tempo moderado
+        cor_prazo = "#ffc107"  # Amarelo
         icone_prazo = "🟡"
         status_prazo = "Tempo moderado"
     elif dias_para_prova > 0:
-        cor_prazo = "#fd7e14"  # Laranja - pouco tempo
+        cor_prazo = "#fd7e14"  # Laranja
         icone_prazo = "🟠"
         status_prazo = "Reta final!"
     else:
-        cor_prazo = "#dc3545"  # Vermelho - prazo passou
+        cor_prazo = "#dc3545"  # Vermelho
         icone_prazo = "🔴"
         status_prazo = "Prazo vencido"
-        dias_para_prova = abs(dias_para_prova)
     
     # Cabeçalho principal com informações da prova
     st.markdown(f"""
     <div class="main-header">
-        <h1>📚 Dashboard de Estudos - Concurso Público</h1>
-        <p style="font-size: 1.1rem; opacity: 0.9; margin-bottom: 1.5rem;">Acompanhe seu progresso de forma visual e organizada</p>
+        <h1 style="font-size: 2.5rem; margin-bottom: 1rem;">📚 Dashboard de Estudos</h1>
+        <p style="font-size: 1.2rem; opacity: 0.9; margin-bottom: 1.5rem;">Acompanhe seu progresso para o concurso público</p>
         
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 1.5rem;">
-            <div style="background: rgba(255,255,255,0.15); padding: 1.2rem; border-radius: 15px; backdrop-filter: blur(10px);">
-                <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
-                    📅 Data Atual
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+            <div style="background: rgba(255,255,255,0.15); padding: 1.5rem; border-radius: 15px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2);">
+                <div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 0.8rem; display: flex; align-items: center;">
+                    <span style="margin-right: 0.5rem;">📅</span> Data Atual
                 </div>
-                <div style="font-size: 1.3rem; font-weight: bold;">
-                    {data_formatada.title()}
-                </div>
-            </div>
-            
-            <div style="background: rgba(255,255,255,0.15); padding: 1.2rem; border-radius: 15px; backdrop-filter: blur(10px);">
-                <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
-                    🎯 Data da Prova
-                </div>
-                <div style="font-size: 1.3rem; font-weight: bold;">
-                    Domingo, 28 de setembro de 2025
+                <div style="font-size: 1.5rem; font-weight: bold;">
+                    {data_formatada}
                 </div>
             </div>
             
-            <div style="background: rgba(255,255,255,0.15); padding: 1.2rem; border-radius: 15px; backdrop-filter: blur(10px); border: 2px solid {cor_prazo};">
-                <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
-                    {icone_prazo} Dias Restantes
+            <div style="background: rgba(255,255,255,0.15); padding: 1.5rem; border-radius: 15px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2);">
+                <div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 0.8rem; display: flex; align-items: center;">
+                    <span style="margin-right: 0.5rem;">🎯</span> Data da Prova
                 </div>
-                <div style="font-size: 2.2rem; font-weight: bold; color: {cor_prazo};">
+                <div style="font-size: 1.5rem; font-weight: bold;">
+                    Domingo, 28 de Setembro de 2025
+                </div>
+            </div>
+            
+            <div style="background: rgba(255,255,255,0.15); padding: 1.5rem; border-radius: 15px; backdrop-filter: blur(10px); border: 2px solid {cor_prazo}; box-shadow: 0 0 15px {cor_prazo}40;">
+                <div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 0.8rem; display: flex; align-items: center;">
+                    <span style="margin-right: 0.5rem;">{icone_prazo}</span> Dias Restantes
+                </div>
+                <div style="font-size: 2.5rem; font-weight: bold; color: {cor_prazo}; text-shadow: 0 0 10px {cor_prazo}80;">
                     {dias_para_prova} dias
                 </div>
-                <div style="font-size: 0.9rem; opacity: 0.8; margin-top: 0.3rem;">
+                <div style="font-size: 1rem; opacity: 0.9; margin-top: 0.5rem;">
                     {status_prazo}
                 </div>
             </div>
@@ -534,11 +676,6 @@ def main():
     with st.sidebar:
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
         st.markdown("### ⚙️ Controles do Dashboard")
-        # Informações técnicas
-        st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
-        st.markdown("### 📊 Informações Técnicas")
-        st.info("📡 Dados sincronizados automaticamente a cada 60 segundos")
-        st.markdown('</div>', unsafe_allow_html=True)
         
         # Botão para atualizar dados
         if st.button("🔄 Atualizar Dados", use_container_width=True, type="primary"):
@@ -547,6 +684,14 @@ def main():
         
         # Botão para debug
         debug_mode = st.checkbox("🔍 Modo Debug", help="Mostrar informações detalhadas para diagnóstico")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Informações técnicas
+        st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
+        st.markdown("### 📊 Informações Técnicas")
+        st.info("📡 Dados sincronizados automaticamente a cada 5 minutos")
+        st.markdown('</div>', unsafe_allow_html=True)
         
         # Informações da prova
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
@@ -563,33 +708,33 @@ def main():
         else:
             st.error("🚨 **Prazo vencido!**")
         
-        # Metas diárias sugeridas
-        if dias_para_prova > 0 and total_pendente > 0:
-            itens_por_dia = max(1, total_pendente / dias_para_prova)
-            st.markdown(f"""
-            **📈 Meta sugerida:**  
-            ~{itens_por_dia:.1f} itens/dia
-            """)
         st.markdown('</div>', unsafe_allow_html=True)
         
         # Legenda de cores
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
-        st.markdown("### 🎨 Legenda de Cores")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("🟢 **Concluído**")
-        with col2:
-            st.markdown("🔴 **Pendente**")
+        st.markdown("### 🎨 Legenda de Status")
+        st.markdown("""
+        <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.5rem; align-items: center;">
+            <div style="background: #28a745; width: 20px; height: 20px; border-radius: 50%;"></div>
+            <div>Concluído</div>
+            <div style="background: #dc3545; width: 20px; height: 20px; border-radius: 50%;"></div>
+            <div>Pendente</div>
+            <div style="background: #ffc107; width: 20px; height: 20px; border-radius: 50%;"></div>
+            <div>Em Andamento</div>
+            <div style="background: #9c27b0; width: 20px; height: 20px; border-radius: 50%;"></div>
+            <div>Revisão</div>
+        </div>
+        """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Instruções
+        # Dicas de estudo
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
-        st.markdown("### 💡 Como usar")
+        st.markdown("### 💡 Dicas de Estudo")
         st.markdown("""
-        - Visualize o progresso geral no topo
-        - Analise cada disciplina nos gráficos
-        - Passe o mouse sobre os gráficos para detalhes
-        - Use o modo debug se houver problemas
+        - Priorize as matérias com menor progresso
+        - Estabeleça metas diárias realistas
+        - Faça revisões periódicas
+        - Descanse adequadamente entre sessões
         """)
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -606,15 +751,12 @@ def main():
                 st.write("**📊 Estrutura do DataFrame:**")
                 st.write(f"📏 Dimensões: {df.shape[0]} linhas x {df.shape[1]} colunas")
                 st.write(f"📋 Colunas: {list(df.columns)}")
-            with col2:
                 st.write("**📈 Distribuição dos Dados:**")
                 st.write("**Status:**")
                 st.write(df['STATUS'].value_counts())
-                st.write("**Disciplinas:**")
-                st.write(df['Matéria'].value_counts())
-            
-            st.write("**🔍 Amostra dos Dados (5 primeiras linhas):**")
-            st.dataframe(df.head(), use_container_width=True)
+            with col2:
+                st.write("**📋 Amostra dos Dados:**")
+                st.dataframe(df.head(10), use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
     
     if df.empty:
@@ -623,7 +765,7 @@ def main():
         # Painel de soluções
         with st.expander("💡 Guia de Solução de Problemas", expanded=True):
             st.markdown("""
-            <div style='background: #f8f9fa; padding: 1.5rem; border-radius: 10px; border-left: 5px solid #dc3545;'>
+            <div class="debug-panel">
             
             ### 🔧 Possíveis soluções:
             
@@ -634,20 +776,20 @@ def main():
             
             **2. Colunas obrigatórias:**
             - 📝 `Matéria` ou `Disciplina`: Nome da matéria/disciplina
-            - 🏷️ `STATUS`: Deve conter exatamente "FEITO" ou "PENDENTE"
+            - 🏷️ `STATUS`: Deve conter "FEITO", "PENDENTE", "EM ANDAMENTO" ou "REVISÃO"
             
             **3. Formato esperado:**
             ```
-            | Matéria              | Conteúdo                    | STATUS   |
-            |----------------------|----------------------------|----------|
-            | LÍNGUA PORTUGUESA    | Interpretação de textos    | FEITO    |
-            | RACIOCÍNIO LÓGICO    | Lógica e raciocínio       | PENDENTE |
+            | Matéria              | Conteúdo                    | STATUS        |
+            |----------------------|----------------------------|---------------|
+            | LÍNGUA PORTUGUESA    | Interpretação de textos    | FEITO         |
+            | RACIOCÍNIO LÓGICO    | Lógica e raciocínio        | EM ANDAMENTO  |
             ```
             
             **4. Verificar permissões:**
             - 🔐 A conta de serviço tem acesso à planilha?
             - 🆔 O ID da planilha está correto?
-            - 🌐 A planilha está compartilhada adequadamente?
+            - 🌐 A planilha está compartilhada com o e-mail do serviço?
             
             </div>
             """, unsafe_allow_html=True)
@@ -671,7 +813,7 @@ def main():
     with col1:
         display_metric_card(
             title="Total de Itens",
-            value=total_geral,
+            value=f"{total_geral}",
             help_text="Número total de tópicos de estudo",
             icon="📋"
         )
@@ -679,7 +821,7 @@ def main():
     with col2:
         display_metric_card(
             title="Itens Concluídos", 
-            value=total_feito,
+            value=f"{total_feito}",
             delta=f"{percentual_geral:.1f}%",
             help_text="Tópicos já estudados",
             icon="✅"
@@ -688,7 +830,7 @@ def main():
     with col3:
         display_metric_card(
             title="Itens Pendentes",
-            value=total_pendente,
+            value=f"{total_pendente}",
             delta=f"{100-percentual_geral:.1f}%",
             help_text="Tópicos ainda não estudados",
             icon="⏳"
@@ -697,8 +839,7 @@ def main():
     with col4:
         display_metric_card(
             title="Progresso Geral",
-            value=f"{percentual_geral:.1f}",
-            delta="%",
+            value=f"{percentual_geral:.1f}%",
             help_text="Percentual geral de conclusão",
             icon="🎯"
         )
@@ -719,22 +860,22 @@ def main():
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
         st.markdown('<div class="chart-title">📋 Detalhamento por Disciplina</div>', unsafe_allow_html=True)
         for i, (disciplina, stats) in enumerate(disciplinas_stats.items()):
-            progress_color = "#28a745" if stats['percentual_feito'] > 50 else "#ffc107" if stats['percentual_feito'] > 20 else "#dc3545"
+            progress_color = "#28a745" if stats['percentual_feito'] > 75 else "#ffc107" if stats['percentual_feito'] > 40 else "#dc3545"
             
-            with st.expander(f"📚 **{disciplina}** ({stats['percentual_feito']:.1f}%)", expanded=i==0):
+            with st.expander(f"📚 **{disciplina}** ({stats['percentual_feito']:.1f}%)", expanded=i<2):
                 col_a, col_b = st.columns(2)
                 with col_a:
                     st.metric("✅ Concluídos", stats['feito'])
-                    st.metric("📊 Total", stats['total'])
-                with col_b:
                     st.metric("⏳ Pendentes", stats['pendente'])
-                    st.metric("🎯 Progresso", f"{stats['percentual_feito']:.1f}%")
+                with col_b:
+                    st.metric("🚧 Em Andamento", stats.get('em_andamento', 0))
+                    st.metric("📝 Revisão", stats.get('revisao', 0))
                 
                 # Barra de progresso
                 progress_width = int(stats['percentual_feito'])
                 st.markdown(f"""
-                <div style="background: #e9ecef; border-radius: 10px; height: 20px; margin: 10px 0;">
-                    <div style="background: {progress_color}; width: {progress_width}%; height: 100%; border-radius: 10px; transition: width 0.3s ease;"></div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {progress_width}%; background: {progress_color};"></div>
                 </div>
                 """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -754,24 +895,20 @@ def main():
                 stats = disciplinas_stats[disciplina]
                 
                 with col:
-                    # Container com borda branca
                     st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                    
-                    # Título do gráfico
                     st.markdown(f'<div class="chart-title">📚 {disciplina}</div>', unsafe_allow_html=True)
                     
-                    # Criar gráfico de rosca
                     donut_chart = create_donut_chart(
                         stats['feito'], 
-                        stats['pendente'], 
-                        disciplina,
-                        [COLOR_POSITIVE, COLOR_NEGATIVE]
+                        stats['pendente'],
+                        stats.get('em_andamento', 0),
+                        stats.get('revisao', 0),
+                        disciplina
                     )
                     
                     st.altair_chart(donut_chart, use_container_width=True)
                     
-                    # Informações adicionais
-                    progress_color = "#28a745" if stats['percentual_feito'] > 50 else "#ffc107" if stats['percentual_feito'] > 20 else "#dc3545"
+                    progress_color = "#28a745" if stats['percentual_feito'] > 75 else "#ffc107" if stats['percentual_feito'] > 40 else "#dc3545"
                     
                     st.markdown(f"""
                     <div class="progress-info">
@@ -787,36 +924,45 @@ def main():
                     st.markdown('</div>', unsafe_allow_html=True)
     
     # Rodapé com informações
-    st.markdown("---")
     current_time = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+    semanas_restantes = dias_para_prova // 7
+    dias_extras = dias_para_prova % 7
+    tempo_restante = f"{semanas_restantes} semanas e {dias_extras} dias" if semanas_restantes > 0 else f"{dias_para_prova} dias"
+    
     st.markdown(f"""
-    <div style='text-align: center; padding: 2rem; background: linear-gradient(90deg, #667eea, #764ba2); color: white; border-radius: 15px; margin-top: 2rem;'>
-        <h3>💡 Dicas para o Sucesso nos Estudos</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 1.5rem 0;">
-            <div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 10px;">
-                <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">📊 Acompanhe regularmente</div>
-                <div style="font-size: 0.9rem;">Use este dashboard diariamente para monitorar seu progresso</div>
+    <div class="dashboard-footer">
+        <h3 style="text-align: center; margin-bottom: 1.5rem;">💡 Estratégias para Sucesso nos Estudos</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin: 1.5rem 0;">
+            <div style="background: rgba(255,255,255,0.1); padding: 1.2rem; border-radius: 12px; backdrop-filter: blur(5px);">
+                <div style="font-size: 1.3rem; margin-bottom: 0.8rem; display: flex; align-items: center;">📊</div>
+                <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">Acompanhe regularmente</div>
+                <div>Use este dashboard diariamente para monitorar seu progresso</div>
             </div>
-            <div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 10px;">
-                <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">🎯 Foque no vermelho</div>
-                <div style="font-size: 0.9rem;">Priorize as disciplinas com menor percentual de conclusão</div>
+            <div style="background: rgba(255,255,255,0.1); padding: 1.2rem; border-radius: 12px; backdrop-filter: blur(5px);">
+                <div style="font-size: 1.3rem; margin-bottom: 0.8rem; display: flex; align-items: center;">🎯</div>
+                <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">Foque no vermelho</div>
+                <div>Priorize as disciplinas com menor percentual de conclusão</div>
             </div>
-            <div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 10px;">
-                <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">✅ Celebre o verde</div>
-                <div style="font-size: 0.9rem;">Reconheça seu progresso nas disciplinas já avançadas</div>
+            <div style="background: rgba(255,255,255,0.1); padding: 1.2rem; border-radius: 12px; backdrop-filter: blur(5px);">
+                <div style="font-size: 1.3rem; margin-bottom: 0.8rem; display: flex; align-items: center;">✅</div>
+                <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">Celebre o verde</div>
+                <div>Reconheça seu progresso nas disciplinas já avançadas</div>
             </div>
         </div>
         <hr style="border: 1px solid rgba(255,255,255,0.3); margin: 1.5rem 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-            <div style="font-size: 0.9rem; opacity: 0.8;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; font-size: 0.95rem;">
+            <div>
                 🔄 Última atualização: {current_time}
             </div>
-            <div style="font-size: 0.9rem; opacity: 0.8;">
-                📈 {len(disciplinas_stats)} disciplinas | {icone_prazo} {dias_para_prova} dias para a prova
+            <div>
+                📈 {len(disciplinas_stats)} disciplinas | {icone_prazo} {tempo_restante} para a prova
             </div>
-            <div style="font-size: 0.9rem; opacity: 0.8;">
-                📚 Dashboard de Estudos v2.1
+            <div>
+                📚 Dashboard de Estudos v2.5
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
