@@ -1,3 +1,6 @@
+# app.py
+# Este é o arquivo único para o dashboard, usando apenas a aba 'Dados'
+
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -15,11 +18,10 @@ except ImportError:
 # --- Configurações ---
 # ATENÇÃO: SUBSTITUA COM SEUS DADOS REAIS
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM' # ID da sua planilha
-WORKSHEET_NAME_PRINCIPAL = 'Data' # Nome da aba do dashboard principal (CORRIGIDO)
-WORKSHEET_NAME_DADOS = 'Dados' # Nome da aba da análise de conteúdo (CORRETO)
+WORKSHEET_NAME_DADOS = 'Dados' # Nome da aba da análise de conteúdo
 CONCURSO_DATE = datetime(2025, 9, 28) # Data do concurso
 
-# Dados do edital
+# Dados do edital (mantidos para calcular o progresso ponderado)
 ED_DATA = {
     'Matéria': ['LÍNGUA PORTUGUESA', 'RLM', 'INFORMÁTICA', 'LEGISLAÇÃO', 'CONHECIMENTOS ESPECÍFICOS - ASSISTENTE EM ADMINISTRAÇÃO'],
     'Total_Conteudos': [20, 15, 10, 15, 30],
@@ -42,18 +44,18 @@ def get_google_auth():
         return None
 
 @st.cache_data(ttl=600)
-def read_data_from_sheets(worksheet_name):
-    """Lê dados do Google Sheets ou usa dados de exemplo."""
+def read_dados_from_sheets():
+    """Lê dados da aba 'Dados' do Google Sheets ou usa dados de exemplo."""
     if not GSPREAD_AVAILABLE or not st.secrets.get("google_credentials"):
         st.info("⚠️ Dados de exemplo estão sendo usados. Para usar seus dados, configure as credenciais do Google Sheets.")
         
-        # Dados de exemplo para ambas as abas
+        # Dados de exemplo simulando a aba 'Dados'
         conteudos_do_edital = {
-            'LÍNGUA PORTUGUESA': ['Gramática', 'Interpretação'],
-            'RLM': ['Lógica de proposições', 'Argumentação'],
-            'INFORMÁTICA': ['Windows', 'Excel'],
+            'LÍNGUA PORTUGUESA': ['Gramática', 'Interpretação', 'Concordância Verbal', 'Crase'],
+            'RLM': ['Lógica de proposições', 'Argumentação', 'Diagramas Lógicos'],
+            'INFORMÁTICA': ['Windows', 'Excel', 'Word'],
             'LEGISLAÇÃO': ['Lei 8.112', 'Lei 8.429'],
-            'CONHECIMENTOS ESPECÍFICOS - ASSISTENTE EM ADMINISTRAÇÃO': ['Administração Geral', 'Gestão de Pessoas']
+            'CONHECIMENTOS ESPECÍFICOS - ASSISTENTE EM ADMINISTRAÇÃO': ['Administração Geral', 'Gestão de Pessoas', 'Gestão Financeira']
         }
         sample_data = []
         for materia, conteudos in conteudos_do_edital.items():
@@ -61,50 +63,41 @@ def read_data_from_sheets(worksheet_name):
                 status = 'Feito' if np.random.rand() > 0.5 else 'Pendente'
                 sample_data.append({'Matéria': materia, 'Conteúdo': conteudo, 'Status': status})
         
-        # Mapeamento para simular colunas da aba 'Dados'
-        df_sample = pd.DataFrame(sample_data)
-        return df_sample
+        return pd.DataFrame(sample_data)
 
     try:
         gc = get_google_auth()
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = spreadsheet.worksheet(worksheet_name)
+        worksheet = spreadsheet.worksheet(WORKSHEET_NAME_DADOS)
         records = worksheet.get_all_records()
         df = pd.DataFrame(records)
-
-        # Lógica de renomeação de colunas baseada no nome da aba
-        if worksheet_name == WORKSHEET_NAME_PRINCIPAL:
-            df = df.rename(columns={'Matéria.1': 'Matéria', 'Status.1': 'Status'})
-        elif worksheet_name == WORKSHEET_NAME_DADOS:
-            # Assumindo que as colunas B, C e E são as colunas 1, 2 e 4 (índice 0-based)
-            df = df.iloc[:, [1, 2, 4]].copy()
-            df.columns = ['Matéria', 'Conteúdo', 'Status']
-            
         return df
     except Exception as e:
-        st.error(f"Erro ao ler dados da aba '{worksheet_name}'. Verifique o ID e o nome da aba. Erro: {e}")
+        st.error(f"Erro ao ler dados da aba '{WORKSHEET_NAME_DADOS}'. Verifique o ID e o nome da aba.")
+        st.exception(e)
         return pd.DataFrame()
 
 # --- Funções de Processamento de Dados ---
-def calculate_weighted_metrics(df_progresso):
+def calculate_weighted_metrics(df_dados):
     """Calcula métricas de progresso ponderado com base no edital."""
     df_edital = pd.DataFrame(ED_DATA)
     
-    # Verifica se a coluna 'Status' existe antes de processar
-    if 'Status' not in df_progresso.columns:
-        st.error("Erro: A coluna 'Status' não foi encontrada na planilha. Verifique o cabeçalho.")
+    # Verifica se as colunas essenciais existem
+    if 'Matéria' not in df_dados.columns or 'Status' not in df_dados.columns:
+        st.error("Erro: As colunas 'Matéria' e 'Status' não foram encontradas na planilha. Verifique o cabeçalho.")
         return pd.DataFrame(), 0.0
 
-    df_progresso['Feito'] = df_progresso['Status'].apply(lambda x: 1 if isinstance(x, str) and x.strip().lower() == 'feito' else 0)
-    df_progresso['Pendente'] = df_progresso['Status'].apply(lambda x: 1 if isinstance(x, str) and x.strip().lower() == 'pendente' else 0)
+    df_dados['Feito'] = df_dados['Status'].apply(lambda x: 1 if isinstance(x, str) and x.strip().lower() == 'feito' else 0)
+    df_dados['Pendente'] = df_dados['Status'].apply(lambda x: 1 if isinstance(x, str) and x.strip().lower() == 'pendente' else 0)
     
-    df_progresso_summary = df_progresso.groupby('Matéria').agg(
+    df_progresso_summary = df_dados.groupby('Matéria').agg(
         Conteudos_Feitos=('Feito', 'sum'),
         Conteudos_Pendentes=('Pendente', 'sum')
     ).reset_index()
     
     df_final = pd.merge(df_edital, df_progresso_summary, on='Matéria', how='left').fillna(0)
     
+    # Calcula a pontuação ponderada
     df_final['Pontos_por_Conteudo'] = np.where(df_final['Total_Conteudos'] > 0, df_final['Peso'] / df_final['Total_Conteudos'], 0)
     df_final['Pontos_Concluidos'] = df_final['Conteudos_Feitos'] * df_final['Pontos_por_Conteudo']
     df_final['Pontos_Pendentes'] = df_final['Total_Conteudos'] * df_final['Pontos_por_Conteudo'] - df_final['Pontos_Concluidos']
@@ -118,40 +111,17 @@ def calculate_weighted_metrics(df_progresso):
 
 # --- Funções de Design e Gráficos ---
 def apply_light_theme_css():
-    """Aplica CSS para tema diurno e clean, incluindo estilo para abas."""
+    """Aplica CSS para tema diurno e clean."""
     st.markdown("""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
         html, body, .stApp { font-family: 'Poppins', sans-serif; background-color: #f0f2f6; color: #1c1c1c; }
-        .stHeader, .stMetric, .stMarkdown, .stButton, .stProgress, h1, h2, h3 { color: #1c1c1c; }
-        .st-emotion-cache-18ni7ap, .st-emotion-cache-13sdqmw { background-color: #ffffff; border-right: 1px solid #e0e0e0; }
-        .stButton button { background-color: #e0e0e0; color: #1c1c1c; border: 1px solid #d0d0d0; font-weight: 600; }
-        .stButton button:hover { background-color: #d0d0d0; }
-        .metric-label { font-weight: 600; color: #666; }
-        .metric-value { font-size: 2.5rem; font-weight: 700; color: #007bff; }
-        .countdown { font-size: 1.5rem; font-weight: 600; color: #007bff; text-shadow: none; }
+        h1, h2, h3 { color: #1c1c1c; }
+        .stMetric > div > div:first-child { font-weight: 600; color: #666; }
+        .stMetric > div > div:nth-child(2) { font-size: 2.5rem; font-weight: 700; color: #007bff; }
+        .countdown { font-size: 1.2rem; font-weight: 600; color: #007bff; }
         .st-emotion-cache-1r6ilae { border-bottom: 1px solid #e0e0e0; margin-bottom: 1.5rem; }
-        h1 { font-size: 2.5rem; font-weight: 700; }
-        h2 { font-size: 2rem; font-weight: 600; }
-        h3 { font-size: 1.5rem; font-weight: 600; color: #444; }
         .stExpander { border-radius: 10px; border: 1px solid #e0e0e0; background-color: #ffffff; padding: 10px; margin-top: 10px; }
-        
-        .st-emotion-cache-1a8775 {
-            background-color: #ffffff;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        .st-emotion-cache-1a8775 .st-emotion-cache-1c713k7 {
-            color: #444;
-            font-weight: 600;
-        }
-        .st-emotion-cache-1a8775 .st-emotion-cache-1c713k7[data-baseweb="tab-list"] button {
-            color: #999;
-            font-weight: 400;
-        }
-        .st-emotion-cache-1a8775 .st-emotion-cache-1c713k7[data-baseweb="tab-list"] button[aria-selected="true"] {
-            color: #007bff;
-            border-bottom: 2px solid #007bff;
-        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -160,7 +130,7 @@ def create_altair_donut_chart(data_row):
     df_chart = pd.DataFrame({'Status': ['Concluído', 'Pendente'], 'Pontos': [data_row['Pontos_Concluidos'], data_row['Pontos_Pendentes']]})
     base = alt.Chart(df_chart).encode(theta=alt.Theta("Pontos:Q", stack=True))
     pie = base.mark_arc(outerRadius=80, innerRadius=50, stroke="#ffffff", strokeWidth=2.5).encode(
-        color=alt.Color("Status:N", scale=alt.Scale(domain=['Concluído', 'Pendente'], range=['#007bff', '#ff4b4b'])),
+        color=alt.Color("Status:N", scale=alt.Scale(domain=['Concluido', 'Pendente'], range=['#007bff', '#ff4b4b'])),
         order=alt.Order("Pontos", sort="descending"),
         tooltip=["Status", "Pontos:Q"]
     )
@@ -213,6 +183,7 @@ def create_altair_bar_chart_conteudo_detalhado(df_summary):
     )
     st.altair_chart(bar_chart, use_container_width=True)
 
+
 # --- Main App ---
 st.set_page_config(page_title="Dashboard TAE UFG", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 apply_light_theme_css()
@@ -236,90 +207,66 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 
-# --- Estrutura de Abas ---
-tab1, tab2 = st.tabs(["Dashboard Principal", "Análise de Conteúdo"])
+# --- Conteúdo Principal ---
+st.subheader("Dashboard de Progresso Geral")
+df_dados = read_dados_from_sheets()
 
-with tab1:
-    # --- Conteúdo da Aba 1 (Dashboard Principal) ---
-    st.subheader("Dashboard de Progresso Geral")
-    df_progresso = read_data_from_sheets(WORKSHEET_NAME_PRINCIPAL)
+if not df_dados.empty:
+    df_final, progresso_ponderado_geral = calculate_weighted_metrics(df_dados)
+    
+    st.markdown("#### Métricas de Progresso")
+    
+    col1, col2, col3 = st.columns(3)
+    total_conteudos_feito = df_dados[df_dados['Status'].str.lower().str.strip() == 'feito'].shape[0]
+    total_conteudos_pendente = df_dados[df_dados['Status'].str.lower().str.strip() == 'pendente'].shape[0]
+    
+    with col1: st.metric(label="✅ Progresso Ponderado Geral", value=f"{progresso_ponderado_geral}%")
+    with col2: st.metric(label="📚 Conteúdos Concluídos", value=f"{int(total_conteudos_feito)}")
+    with col3: st.metric(label="⏳ Conteúdos Pendentes", value=f"{int(total_conteudos_pendente)}")
 
-    if not df_progresso.empty:
-        df_final, progresso_ponderado_geral = calculate_weighted_metrics(df_progresso)
-        
-        st.markdown("#### Métricas de Progresso")
-        
-        col1, col2, col3 = st.columns(3)
-        total_conteudos_feito = df_progresso[df_progresso['Status'] == 'Feito'].shape[0]
-        total_conteudos_pendente = df_progresso[df_progresso['Status'] == 'Pendente'].shape[0]
-        
-        with col1: st.metric(label="✅ Progresso Ponderado Geral", value=f"{progresso_ponderado_geral}%")
-        with col2: st.metric(label="📚 Conteúdos Concluídos", value=f"{int(total_conteudos_feito)}")
-        with col3: st.metric(label="⏳ Conteúdos Pendentes", value=f"{int(total_conteudos_pendente)}")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Filtro de disciplinas
+    disciplinas_disponiveis = [m for m in ED_DATA['Matéria']]
+    disciplinas_selecionadas = st.multiselect("Selecione as disciplinas para os gráficos:", disciplinas_disponiveis, default=disciplinas_disponiveis)
+    df_final_filtered = df_final[df_final['Matéria'].isin(disciplinas_selecionadas)]
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Filtro de disciplinas
-        disciplinas_disponiveis = [m for m in ED_DATA['Matéria']]
-        disciplinas_selecionadas = st.multiselect("Selecione as disciplinas para os gráficos:", disciplinas_disponiveis, default=disciplinas_disponiveis)
-        df_final_filtered = df_final[df_final['Matéria'].isin(disciplinas_selecionadas)]
-
-        with st.container():
-            st.markdown("#### Progresso por Disciplina (Ponderado)")
+    with st.container():
+        st.markdown("#### Progresso por Disciplina (Ponderado)")
+        if not df_final_filtered.empty:
             cols_charts = st.columns(len(df_final_filtered))
             for idx, (_, row) in enumerate(df_final_filtered.iterrows()):
                 with cols_charts[idx % len(cols_charts)]:
                     chart = create_altair_donut_chart(row)
                     st.altair_chart(chart, use_container_width=True)
+        else:
+            st.info("Nenhuma disciplina selecionada para visualização.")
 
-        st.markdown("---")
 
-        with st.container():
-            st.markdown("#### Análise de Prioridade e Conteúdo")
-            col_bar, col_bubble = st.columns(2)
-            
-            with col_bar:
-                chart_bar_conteudo = create_altair_bar_chart_conteudo(df_final_filtered)
-                st.altair_chart(chart_bar_conteudo, use_container_width=True)
+    st.markdown("---")
 
-            with col_bubble:
-                df_strategy = pd.DataFrame(ED_DATA)
-                total_peso_geral = df_strategy['Peso'].sum()
-                df_strategy['Porcentagem_Pontos'] = round((df_strategy['Peso'] / total_peso_geral) * 100, 1)
-                chart_bubble = create_altair_bubble_chart(df_strategy)
-                st.altair_chart(chart_bubble, use_container_width=True)
+    with st.container():
+        st.markdown("#### Análise de Prioridade e Conteúdo")
+        col_bar, col_bubble = st.columns(2)
         
-    else:
-        st.error(f"❌ Não foi possível carregar os dados da aba '{WORKSHEET_NAME_PRINCIPAL}'. Verifique sua conexão e configurações.")
+        with col_bar:
+            chart_bar_conteudo = create_altair_bar_chart_conteudo(df_final_filtered)
+            st.altair_chart(chart_bar_conteudo, use_container_width=True)
 
+        with col_bubble:
+            df_strategy = pd.DataFrame(ED_DATA)
+            total_peso_geral = df_strategy['Peso'].sum()
+            df_strategy['Porcentagem_Pontos'] = round((df_strategy['Peso'] / total_peso_geral) * 100, 1)
+            chart_bubble = create_altair_bubble_chart(df_strategy)
+            st.altair_chart(chart_bubble, use_container_width=True)
 
-with tab2:
-    # --- Conteúdo da Aba 2 (Análise de Conteúdo) ---
-    st.subheader("Análise Detalhada por Conteúdo")
+    with st.expander("🔍 Ver Tabela de Conteúdos Detalhada"):
+        st.markdown("Esta tabela lista todos os conteúdos do edital e o seu status.")
+        st.dataframe(df_dados, use_container_width=True, hide_index=True)
     
-    df_dados = read_data_from_sheets(WORKSHEET_NAME_DADOS)
+else:
+    st.error(f"❌ Não foi possível carregar os dados da aba '{WORKSHEET_NAME_DADOS}'. Verifique sua conexão e configurações.")
 
-    if not df_dados.empty:
-        try:
-            # A renomeação é feita na função de leitura
-            if 'Matéria' in df_dados.columns and 'Conteúdo' in df_dados.columns and 'Status' in df_dados.columns:
-                df_dados_filtered = df_dados[['Matéria', 'Conteúdo', 'Status']]
-                
-                df_summary = df_dados_filtered.groupby('Matéria')['Status'].value_counts().unstack().fillna(0)
-                df_summary = df_summary.reset_index().rename_axis(None, axis=1)
-
-                st.markdown("#### Progresso de Conteúdos por Matéria")
-                create_altair_bar_chart_conteudo_detalhado(df_summary)
-
-                with st.expander("🔍 Ver Tabela de Conteúdos Detalhada"):
-                    st.markdown("Esta tabela lista todos os conteúdos do edital e o seu status.")
-                    st.dataframe(df_dados_filtered, use_container_width=True, hide_index=True)
-            else:
-                 st.error(f"❌ A planilha '{WORKSHEET_NAME_DADOS}' não contém as colunas esperadas ('Matéria', 'Conteúdo', 'Status') após a leitura. Verifique a estrutura da sua planilha.")
-        except Exception as e:
-            st.error(f"Ocorreu um erro ao processar os dados da aba '{WORKSHEET_NAME_DADOS}': {e}")
-    else:
-        st.error(f"❌ Não foi possível carregar os dados da aba '{WORKSHEET_NAME_DADOS}'. Verifique a conexão com o Google Sheets.")
 
 # --- Rodapé ---
 st.markdown("---")
