@@ -277,26 +277,40 @@ def get_gspread_client():
 @st.cache_data(ttl=timedelta(minutes=DATA_REFRESH_MINUTES))
 def load_data(spreadsheet_id, worksheet_name):
     """Carrega dados da planilha Google Sheets"""
+    error_details = None
     try:
         gc = get_gspread_client()
         if gc is None:
-            return None
+            return None, "Falha na autenticação com Google Sheets"
             
-        spreadsheet = gc.open_by_id(spreadsheet_id)
-        worksheet = spreadsheet.worksheet(worksheet_name)
+        # Tentar abrir a planilha
+        try:
+            spreadsheet = gc.open_by_id(spreadsheet_id)
+        except SpreadsheetNotFound:
+            return None, f"Planilha com ID '{spreadsheet_id}' não encontrada. Verifique se o ID está correto e se a conta de serviço tem acesso."
+        except Exception as e:
+            return None, f"Erro ao abrir planilha: {str(e)}"
+        
+        # Listar todas as worksheets disponíveis
+        worksheets = [ws.title for ws in spreadsheet.worksheets()]
+        
+        # Tentar abrir a worksheet específica
+        try:
+            worksheet = spreadsheet.worksheet(worksheet_name)
+        except Exception as e:
+            return None, f"Worksheet '{worksheet_name}' não encontrada. Worksheets disponíveis: {', '.join(worksheets)}"
+        
+        # Carregar dados
         data = worksheet.get_all_records()
         
         if not data:
-            return None
+            return None, f"A worksheet '{worksheet_name}' está vazia ou não contém dados válidos."
         
         df = pd.DataFrame(data)
-        return df
-    except SpreadsheetNotFound:
-        return None
-    except APIError:
-        return None
-    except Exception:
-        return None
+        return df, None
+        
+    except Exception as e:
+        return None, f"Erro inesperado: {str(e)}"
 
 def process_data(df):
     """Processa e valida os dados carregados"""
@@ -368,23 +382,52 @@ def main():
 
     # Carregar Dados
     with show_loading("Carregando dados da planilha..."):
-        df = load_data(SPREADSHEET_ID, WORKSHEET_NAME)
+        df, error_message = load_data(SPREADSHEET_ID, WORKSHEET_NAME)
 
     # Verificar se os dados foram carregados com sucesso
     if df is None:
         st.error("❌ Não foi possível carregar os dados da planilha.")
-        st.info("💡 Possíveis causas:")
-        st.info("- Verifique se o ID da planilha está correto")
-        st.info("- Confirme se a conta de serviço tem acesso à planilha")
-        st.info("- Certifique-se de que a aba 'dados' existe")
-        st.info("- Verifique se as credenciais estão configuradas corretamente")
+        
+        if error_message:
+            st.error(f"**Detalhes do erro:** {error_message}")
+        
+        # Informações de debug
+        st.info("📋 **Informações de configuração atual:**")
+        st.info(f"- **ID da Planilha:** `{SPREADSHEET_ID}`")
+        st.info(f"- **Nome da Worksheet:** `{WORKSHEET_NAME}`")
+        
+        st.info("💡 **Possíveis soluções:**")
+        st.info("1. Verifique se o ID da planilha está correto no código")
+        st.info("2. Confirme se a conta de serviço tem acesso à planilha")
+        st.info("3. Verifique se existe uma aba chamada 'dados' na planilha")
+        st.info("4. Teste o acesso manualmente: https://docs.google.com/spreadsheets/d/" + SPREADSHEET_ID)
+        
+        # Tentar listar planilhas acessíveis (se possível)
+        try:
+            gc = get_gspread_client()
+            if gc:
+                st.info("🔍 **Tentando acessar a planilha para diagnóstico...**")
+                spreadsheet = gc.open_by_id(SPREADSHEET_ID)
+                worksheets = [ws.title for ws in spreadsheet.worksheets()]
+                st.success(f"✅ **Planilha encontrada!** Worksheets disponíveis: {', '.join(worksheets)}")
+                
+                if WORKSHEET_NAME not in worksheets:
+                    st.error(f"❌ A worksheet '{WORKSHEET_NAME}' não existe. Worksheets disponíveis: {', '.join(worksheets)}")
+                else:
+                    st.info(f"✅ Worksheet '{WORKSHEET_NAME}' encontrada, mas sem dados válidos.")
+        except Exception as e:
+            st.error(f"❌ Não foi possível acessar a planilha: {str(e)}")
+        
         st.stop()
     
     if df.empty:
-        st.warning("⚠️ A planilha está vazia ou não contém dados válidos.")
+        st.warning("⚠️ A planilha foi encontrada mas está vazia.")
         st.stop()
     
     st.success("✅ Dados carregados com sucesso!")
+    
+    # Mostrar informações básicas dos dados carregados
+    st.success(f"📊 **{len(df)} registros** carregados de **{len(df.columns)} colunas**")
     
     # Mostrar timestamp da última atualização
     current_time = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
@@ -903,9 +946,46 @@ def main():
         else:
             st.write("**📊 Status:** Dados insuficientes para estatísticas")
         
+        # Botão para testar conexão
         st.markdown("---")
+        st.markdown("#### 🔧 Ferramentas de Diagnóstico")
         
-        # Modo debug
+        if st.button("🔍 Testar Conexão com Google Sheets"):
+            with st.spinner("Testando conexão..."):
+                try:
+                    gc = get_gspread_client()
+                    if gc is None:
+                        st.error("❌ Falha na autenticação")
+                    else:
+                        st.success("✅ Autenticação OK")
+                        
+                        try:
+                            spreadsheet = gc.open_by_id(SPREADSHEET_ID)
+                            st.success("✅ Planilha encontrada")
+                            
+                            worksheets = [ws.title for ws in spreadsheet.worksheets()]
+                            st.success(f"✅ Worksheets: {', '.join(worksheets)}")
+                            
+                            if WORKSHEET_NAME in worksheets:
+                                worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
+                                data = worksheet.get_all_records()
+                                st.success(f"✅ Dados carregados: {len(data)} registros")
+                                
+                                if data:
+                                    st.write("**Primeiros dados:**")
+                                    st.json(data[0] if len(data) > 0 else {})
+                            else:
+                                st.error(f"❌ Worksheet '{WORKSHEET_NAME}' não encontrada")
+                                
+                        except Exception as e:
+                            st.error(f"❌ Erro ao acessar planilha: {str(e)}")
+                            
+                except Exception as e:
+                    st.error(f"❌ Erro geral: {str(e)}")
+        
+        if st.button("🔄 Limpar Cache e Recarregar"):
+            st.cache_data.clear()
+            st.rerun()
         if st.checkbox("🔧 Modo Debug"):
             st.markdown("#### 🔍 Debug Info")
             st.write("**Colunas disponíveis:**")
