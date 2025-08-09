@@ -1,5 +1,3 @@
-# app.py
-# Este é o arquivo único para o dashboard, usando apenas a aba 'Dados'
 
 import streamlit as st
 import pandas as pd
@@ -18,7 +16,7 @@ except ImportError:
 # --- Configurações ---
 # ATENÇÃO: SUBSTITUA COM SEUS DADOS REAIS
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM' # ID da sua planilha
-WORKSHEET_NAME_DADOS = 'Dados' # Nome da aba da análise de conteúdo
+WORKSHEET_NAME_DADOS = 'Planilha1' # Nome da aba da análise de conteúdo (CORRIGIDO)
 CONCURSO_DATE = datetime(2025, 9, 28) # Data do concurso
 
 # Dados do edital (mantidos para calcular o progresso ponderado)
