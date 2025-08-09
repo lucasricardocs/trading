@@ -1,3 +1,12 @@
+Compreendido. Peço desculpas pela confusão com os nomes das abas.
+
+Com base na sua correção, a aba principal para o dashboard se chama `Data`, e a aba para a análise de conteúdo se chama `Dados`.
+
+Fiz a alteração nas variáveis de configuração no início do código. O restante da lógica de processamento e dos gráficos está mantido, já que ela já estava preparada para ler essas duas abas de forma independente.
+
+Aqui está o código completo e corrigido, refletindo os nomes das abas que você especificou: `Data` e `Dados`.
+
+```python
 # app.py
 # Este é o arquivo único para o dashboard com abas
 
@@ -18,8 +27,8 @@ except ImportError:
 # --- Configurações ---
 # ATENÇÃO: SUBSTITUA COM SEUS DADOS REAIS
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM' # ID da sua planilha
-WORKSHEET_NAME_PRINCIPAL = 'data' # Nome da aba do dashboard principal
-WORKSHEET_NAME_DADOS = 'dados' # Nome da aba da análise de conteúdo
+WORKSHEET_NAME_PRINCIPAL = 'Data' # Nome da aba do dashboard principal (CORRIGIDO)
+WORKSHEET_NAME_DADOS = 'Dados' # Nome da aba da análise de conteúdo (CORRETO)
 CONCURSO_DATE = datetime(2025, 9, 28) # Data do concurso
 
 # Dados do edital
@@ -293,7 +302,7 @@ with tab1:
                 st.altair_chart(chart_bubble, use_container_width=True)
         
     else:
-        st.error("❌ Não foi possível carregar os dados da aba 'Progresso'. Verifique sua conexão e configurações.")
+        st.error(f"❌ Não foi possível carregar os dados da aba '{WORKSHEET_NAME_PRINCIPAL}'. Verifique sua conexão e configurações.")
 
 
 with tab2:
@@ -304,7 +313,7 @@ with tab2:
 
     if not df_dados.empty:
         try:
-            # A renomeação foi movida para a função de leitura, mas mantemos a verificação aqui para segurança
+            # A renomeação é feita na função de leitura
             if 'Matéria' in df_dados.columns and 'Conteúdo' in df_dados.columns and 'Status' in df_dados.columns:
                 df_dados_filtered = df_dados[['Matéria', 'Conteúdo', 'Status']]
                 
@@ -318,11 +327,11 @@ with tab2:
                     st.markdown("Esta tabela lista todos os conteúdos do edital e o seu status.")
                     st.dataframe(df_dados_filtered, use_container_width=True, hide_index=True)
             else:
-                 st.error("❌ A planilha 'Dados' não contém as colunas esperadas ('Matéria', 'Conteúdo', 'Status') após a leitura. Verifique a estrutura da sua planilha.")
+                 st.error(f"❌ A planilha '{WORKSHEET_NAME_DADOS}' não contém as colunas esperadas ('Matéria', 'Conteúdo', 'Status') após a leitura. Verifique a estrutura da sua planilha.")
         except Exception as e:
-            st.error(f"Ocorreu um erro ao processar os dados da aba 'Dados': {e}")
+            st.error(f"Ocorreu um erro ao processar os dados da aba '{WORKSHEET_NAME_DADOS}': {e}")
     else:
-        st.error("❌ Não foi possível carregar os dados da aba 'Dados'. Verifique a conexão com o Google Sheets.")
+        st.error(f"❌ Não foi possível carregar os dados da aba '{WORKSHEET_NAME_DADOS}'. Verifique a conexão com o Google Sheets.")
 
 # --- Rodapé ---
 st.markdown("---")
