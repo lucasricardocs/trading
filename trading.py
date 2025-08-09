@@ -7,10 +7,12 @@ import numpy as np
 import time
 from datetime import datetime, date, timedelta
 from google.oauth2.service_account import Credentials
-from gspread.exceptions import SpreadsheetNotFound
+from gspread.exceptions import SpreadsheetNotFound, APIError
 import warnings
 import traceback
 import locale
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Configurar localização para português
 try:
@@ -27,6 +29,8 @@ warnings.filterwarnings("ignore", category=FutureWarning, message=".*observed=Fa
 # --- Configurações ---
 SPREADSHEET_ID = "16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM"
 WORKSHEET_NAME = "dados"
+CACHE_TTL_HOURS = 1
+DATA_REFRESH_MINUTES = 5
 
 # --- Configuração da Página ---
 st.set_page_config(
@@ -86,6 +90,10 @@ st.markdown("""
         border-left: 4px solid #667eea;
         margin-bottom: 1rem;
         transition: transform 0.2s ease;
+        height: 120px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
     
     .metric-card:hover {
@@ -98,6 +106,7 @@ st.markdown("""
         font-weight: 700;
         color: #2c3e50;
         margin: 0;
+        line-height: 1;
     }
     
     .metric-label {
@@ -105,7 +114,7 @@ st.markdown("""
         color: #7f8c8d;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        margin: 0;
+        margin: 0.5rem 0 0 0;
     }
     
     /* Seções */
@@ -177,45 +186,32 @@ st.markdown("""
         font-weight: 500;
     }
     
-    /* Sidebar customizada */
-    .css-1d391kg {
-        background-color: #f8f9fa;
-    }
-    
-    /* Botões */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
+    /* Alert boxes */
+    .alert-info {
+        background-color: #d1ecf1;
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+        padding: 1rem;
         border-radius: 8px;
-        padding: 0.5rem 1rem;
-        font-weight: 500;
-        transition: all 0.2s ease;
+        margin: 1rem 0;
     }
     
-    .stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-    }
-    
-    /* Selectbox customizado */
-    .stSelectbox > div > div {
+    .alert-success {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 1rem;
         border-radius: 8px;
-        border: 2px solid #e9ecef;
+        margin: 1rem 0;
     }
     
-    .stSelectbox > div > div:focus-within {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-    
-    /* Gráficos */
-    .chart-container {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-        margin-bottom: 2rem;
+    .alert-warning {
+        background-color: #fff3cd;
+        border: 1px solid #ffeeba;
+        color: #856404;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
     }
     
     /* Responsividade */
@@ -227,375 +223,596 @@ st.markdown("""
         .metric-value {
             font-size: 2rem;
         }
+        
+        .metric-card {
+            height: auto;
+            min-height: 100px;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
 
+# --- Funções de Utilidade ---
+def show_error(message, details=None):
+    """Exibe mensagem de erro com detalhes opcionais"""
+    st.error(f"❌ {message}")
+    if details and st.sidebar.checkbox("🔍 Ver detalhes do erro"):
+        st.sidebar.code(details)
+
+def show_loading(message="Carregando..."):
+    """Exibe spinner de carregamento"""
+    return st.spinner(f"🔄 {message}")
+
 # --- Funções de Autenticação e Carregamento de Dados ---
-@st.cache_resource(ttl=timedelta(hours=1))
+@st.cache_resource(ttl=timedelta(hours=CACHE_TTL_HOURS))
 def get_gspread_client():
+    """Inicializa e retorna cliente do Google Sheets"""
     try:
-        # Carregar credenciais do Streamlit Secrets
+        # Verificar se as credenciais existem
+        if "google_credentials" not in st.secrets:
+            raise ValueError("Credenciais do Google Cloud não encontradas no secrets.toml")
+        
         creds_info = {
-            "type": st.secrets["gcp_service_account"]["type"],
-            "project_id": st.secrets["gcp_service_account"]["project_id"],
-            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
-            "private_key": st.secrets["gcp_service_account"]["private_key"].replace("\\n", "\n"),
-            "client_email": st.secrets["gcp_service_account"]["client_email"],
-            "client_id": st.secrets["gcp_service_account"]["client_id"],
-            "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
-            "token_uri": st.secrets["gcp_service_account"]["token_uri"],
-            "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"],
-            "universe_domain": st.secrets["gcp_service_account"]["universe_domain"]
+            "type": st.secrets["google_credentials"]["type"],
+            "project_id": st.secrets["google_credentials"]["project_id"],
+            "private_key_id": st.secrets["google_credentials"]["private_key_id"],
+            "private_key": st.secrets["google_credentials"]["private_key"].replace("\\n", "\n"),
+            "client_email": st.secrets["google_credentials"]["client_email"],
+            "client_id": st.secrets["google_credentials"]["client_id"],
+            "auth_uri": st.secrets["google_credentials"]["auth_uri"],
+            "token_uri": st.secrets["google_credentials"]["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["google_credentials"]["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["google_credentials"]["client_x509_cert_url"],
+            "universe_domain": st.secrets["google_credentials"]["universe_domain"]
         }
+        
         creds = Credentials.from_service_account_info(creds_info)
         gc = gspread.authorize(creds)
         return gc
     except Exception as e:
-        st.error(f"❌ Erro ao autenticar com o Google Sheets: {e}")
+        show_error("Erro ao autenticar com o Google Sheets", str(e))
         st.info("💡 Verifique se as credenciais estão configuradas corretamente no secrets.toml")
         st.stop()
 
-@st.cache_data(ttl=timedelta(minutes=5))
+@st.cache_data(ttl=timedelta(minutes=DATA_REFRESH_MINUTES))
 def load_data(spreadsheet_id, worksheet_name):
+    """Carrega dados da planilha Google Sheets"""
     try:
         gc = get_gspread_client()
         spreadsheet = gc.open_by_id(spreadsheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
         data = worksheet.get_all_records()
+        
+        if not data:
+            raise ValueError("Planilha está vazia ou não contém dados válidos")
+        
         df = pd.DataFrame(data)
         return df
     except SpreadsheetNotFound:
-        st.error(f"❌ Planilha com ID '{spreadsheet_id}' não encontrada.")
+        show_error(f"Planilha com ID '{spreadsheet_id}' não encontrada")
         st.info("💡 Verifique se o ID da planilha está correto e se a conta de serviço tem acesso.")
         st.stop()
+    except APIError as e:
+        show_error("Erro de API do Google Sheets", str(e))
+        st.info("💡 Verifique se você não excedeu o limite de requisições da API.")
+        st.stop()
     except Exception as e:
-        st.error(f"❌ Erro ao carregar dados da planilha: {e}")
+        show_error("Erro ao carregar dados da planilha", str(e))
         st.stop()
 
-# --- Header Principal ---
-st.markdown("""
-<div class="main-header">
-    <h1>📚 Dashboard de Disciplinas</h1>
-    <p>Acompanhe o progresso dos seus estudos em tempo real</p>
-</div>
-""", unsafe_allow_html=True)
+def process_data(df):
+    """Processa e valida os dados carregados"""
+    required_columns = ['Disciplinas', 'Feito', 'Pendente']
+    
+    # Verificar se as colunas existem
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        show_error(f"Colunas não encontradas: {', '.join(missing_columns)}")
+        st.info("📋 Colunas disponíveis na planilha:")
+        st.write(df.columns.tolist())
+        st.stop()
 
-# --- Carregar Dados ---
-with st.spinner("🔄 Carregando dados da planilha..."):
-    df = load_data(SPREADSHEET_ID, WORKSHEET_NAME)
+    # Converter colunas para numérico
+    df['Feito'] = pd.to_numeric(df['Feito'], errors='coerce').fillna(0)
+    df['Pendente'] = pd.to_numeric(df['Pendente'], errors='coerce').fillna(0)
+    df['Total'] = df['Feito'] + df['Pendente']
 
-if df is not None and not df.empty:
-    st.success("✅ Dados carregados com sucesso!")
-else:
-    st.warning("⚠️ Não foi possível carregar os dados ou a planilha está vazia.")
-    st.stop()
+    # Adicionar percentual de progresso por disciplina
+    df['Progresso_Pct'] = df.apply(lambda row: 
+        (row['Feito'] / row['Total'] * 100) if row['Total'] > 0 else 0, axis=1)
 
-# --- Processamento de Dados ---
-required_columns = ['Disciplinas', 'Feito', 'Pendente']
+    # Adicionar status geral
+    def get_status(row):
+        if row['Total'] == 0:
+            return "Não Iniciado"
+        elif row['Feito'] == row['Total']:
+            return "Concluído"
+        elif row['Feito'] > 0 and row['Pendente'] > 0:
+            return "Em Andamento"
+        elif row['Pendente'] > 0 and row['Feito'] == 0:
+            return "Não Iniciado"
+        else:
+            return "Em Andamento"
 
-# Verificar se as colunas existem
-missing_columns = [col for col in required_columns if col not in df.columns]
-if missing_columns:
-    st.error(f"❌ Colunas não encontradas: {', '.join(missing_columns)}")
-    st.info("📋 Colunas disponíveis na planilha:")
-    st.write(df.columns.tolist())
-    st.stop()
+    df['Status_Geral'] = df.apply(get_status, axis=1)
+    
+    return df
 
-# Converter colunas para numérico
-df['Feito'] = pd.to_numeric(df['Feito'], errors='coerce').fillna(0)
-df['Pendente'] = pd.to_numeric(df['Pendente'], errors='coerce').fillna(0)
-df['Total'] = df['Feito'] + df['Pendente']
+def create_metrics_html(value, label, color="#2c3e50", border_color="#667eea"):
+    """Cria HTML para cards de métricas"""
+    return f"""
+    <div class="metric-card" style="border-left-color: {border_color};">
+        <p class="metric-value" style="color: {color};">{value}</p>
+        <p class="metric-label">{label}</p>
+    </div>
+    """
 
-# Adicionar status geral
-def get_status(row):
-    if row['Feito'] > 0 and row['Pendente'] == 0:
-        return "Feito"
-    elif row['Pendente'] > 0 and row['Feito'] == 0:
-        return "Pendente"
-    elif row['Feito'] > 0 and row['Pendente'] > 0:
-        return "Em Andamento"
+def format_status_cell(status):
+    """Formata células de status com cores"""
+    status_colors = {
+        "Concluído": "#28a745",
+        "Em Andamento": "#007bff", 
+        "Não Iniciado": "#dc3545",
+        "Pendente": "#ffc107"
+    }
+    color = status_colors.get(status, "#6c757d")
+    return f'<span style="color: {color}; font-weight: bold;">●</span> {status}'
+
+# --- Início da Aplicação ---
+def main():
+    # Header Principal
+    st.markdown("""
+    <div class="main-header">
+        <h1>📚 Dashboard de Disciplinas</h1>
+        <p>Acompanhe o progresso dos seus estudos em tempo real</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Carregar Dados
+    with show_loading("Carregando dados da planilha..."):
+        df = load_data(SPREADSHEET_ID, WORKSHEET_NAME)
+
+    if df is not None and not df.empty:
+        st.success("✅ Dados carregados com sucesso!")
+        
+        # Mostrar timestamp da última atualização
+        current_time = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+        st.info(f"🕒 Última atualização: {current_time}")
     else:
-        return "Não Iniciado"
+        st.warning("⚠️ Não foi possível carregar os dados ou a planilha está vazia.")
+        st.stop()
 
-df['Status Geral'] = df.apply(get_status, axis=1)
+    # Processar dados
+    try:
+        df = process_data(df)
+    except Exception as e:
+        show_error("Erro ao processar os dados", str(e))
+        st.stop()
 
-# --- Métricas Principais ---
-col1, col2, col3, col4 = st.columns(4)
+    # --- Métricas Principais ---
+    st.markdown("### 📊 Visão Geral")
+    
+    total_disciplinas = len(df['Disciplinas'].unique())
+    total_feito = int(df['Feito'].sum())
+    total_pendente = int(df['Pendente'].sum())
+    total_conteudos = total_feito + total_pendente
+    progresso_geral = (total_feito / total_conteudos * 100) if total_conteudos > 0 else 0
 
-total_disciplinas = len(df['Disciplinas'].unique())
-total_feito = int(df['Feito'].sum())
-total_pendente = int(df['Pendente'].sum())
-total_conteudos = total_feito + total_pendente
+    col1, col2, col3, col4 = st.columns(4)
 
-with col1:
-    st.markdown(f"""
-    <div class="metric-card">
-        <p class="metric-value">{total_disciplinas}</p>
-        <p class="metric-label">Disciplinas</p>
+    with col1:
+        st.markdown(create_metrics_html(
+            total_disciplinas, "Disciplinas", "#667eea", "#667eea"
+        ), unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(create_metrics_html(
+            total_feito, "Conteúdos Concluídos", "#28a745", "#28a745"
+        ), unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(create_metrics_html(
+            total_pendente, "Conteúdos Pendentes", "#ffc107", "#ffc107"
+        ), unsafe_allow_html=True)
+
+    with col4:
+        st.markdown(create_metrics_html(
+            f"{progresso_geral:.1f}%", "Progresso Geral", "#667eea", "#667eea"
+        ), unsafe_allow_html=True)
+
+    # --- Gráficos de Análise ---
+    st.markdown("""
+    <div class="section-header">
+        <h2>📈 Análise Visual dos Dados</h2>
     </div>
     """, unsafe_allow_html=True)
 
-with col2:
-    st.markdown(f"""
-    <div class="metric-card">
-        <p class="metric-value" style="color: #28a745;">{total_feito}</p>
-        <p class="metric-label">Conteúdos Feitos</p>
+    # Gráficos lado a lado
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Gráfico de Pizza - Status Geral
+        st.subheader("🔄 Distribuição Geral")
+        
+        if total_conteudos > 0:
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=['Concluído', 'Pendente'],
+                values=[total_feito, total_pendente],
+                hole=.4,
+                marker=dict(colors=['#28a745', '#ffc107']),
+                textinfo='label+percent+value',
+                textfont_size=12
+            )])
+            
+            fig_pie.update_layout(
+                title=dict(
+                    text="Status dos Conteúdos",
+                    x=0.5,
+                    font=dict(size=16, color='#2c3e50')
+                ),
+                height=400,
+                showlegend=True,
+                margin=dict(t=60, b=20, l=20, r=20)
+            )
+            
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col2:
+        # Gráfico de Barras - Por Disciplina
+        st.subheader("📚 Por Disciplina")
+        
+        df_chart = df.groupby('Disciplinas')[['Feito', 'Pendente']].sum().reset_index()
+        
+        fig_bar = go.Figure()
+        
+        fig_bar.add_trace(go.Bar(
+            name='Concluído',
+            x=df_chart['Disciplinas'],
+            y=df_chart['Feito'],
+            marker_color='#28a745',
+            text=df_chart['Feito'],
+            textposition='auto'
+        ))
+        
+        fig_bar.add_trace(go.Bar(
+            name='Pendente',
+            x=df_chart['Disciplinas'],
+            y=df_chart['Pendente'],
+            marker_color='#ffc107',
+            text=df_chart['Pendente'],
+            textposition='auto'
+        ))
+        
+        fig_bar.update_layout(
+            title=dict(
+                text="Conteúdos por Disciplina",
+                x=0.5,
+                font=dict(size=16, color='#2c3e50')
+            ),
+            xaxis_title="Disciplinas",
+            yaxis_title="Quantidade",
+            barmode='group',
+            height=400,
+            margin=dict(t=60, b=80, l=20, r=20)
+        )
+        
+        fig_bar.update_xaxis(tickangle=45)
+        
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    # Gráficos de Rosca Individuais por Disciplina
+    st.markdown("""
+    <div class="section-header">
+        <h2>🍩 Progresso Individual por Disciplina</h2>
     </div>
     """, unsafe_allow_html=True)
-
-with col3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <p class="metric-value" style="color: #ffc107;">{total_pendente}</p>
-        <p class="metric-label">Conteúdos Pendentes</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col4:
-    progresso = (total_feito / total_conteudos * 100) if total_conteudos > 0 else 0
-    st.markdown(f"""
-    <div class="metric-card">
-        <p class="metric-value" style="color: #667eea;">{progresso:.1f}%</p>
-        <p class="metric-label">Progresso Geral</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-# --- Gráficos em Rosca ---
-st.markdown("""
-<div class="section-header">
-    <h2>📊 Análise Visual dos Dados</h2>
-</div>
-""", unsafe_allow_html=True)
-
-# Preparar dados para gráficos
-df_grouped = df.groupby('Disciplinas')[['Feito', 'Pendente']].sum().reset_index()
-df_melted = df_grouped.melt(id_vars=['Disciplinas'], var_name='Status', value_name='Quantidade')
-
-# Gráfico 1: Status Geral (Feito vs Pendente)
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
     
-    # Dados para o gráfico de status geral
-    status_data = pd.DataFrame({
-        'Status': ['Feito', 'Pendente'],
-        'Quantidade': [total_feito, total_pendente]
-    })
+    # Calcular progresso por disciplina
+    df_progress = df.groupby('Disciplinas').agg({
+        'Feito': 'sum',
+        'Pendente': 'sum',
+        'Total': 'sum'
+    }).reset_index()
     
-    chart_status = alt.Chart(status_data).mark_arc(
-        outerRadius=120,
-        innerRadius=60,
-        stroke='white',
-        strokeWidth=2
-    ).encode(
-        theta=alt.Theta(field="Quantidade", type="quantitative"),
-        color=alt.Color(
-            field="Status", 
-            type="nominal", 
-            title="Status",
-            scale=alt.Scale(range=["#28a745", "#ffc107"])
-        ),
-        tooltip=["Status", "Quantidade"]
-    ).properties(
-        title=alt.TitleParams(
-            text="Status Geral (Feito vs Pendente)",
-            fontSize=16,
-            fontWeight='bold'
-        ),
-        width=300,
-        height=300
-    )
+    df_progress['Progresso_Pct'] = (df_progress['Feito'] / df_progress['Total'] * 100).round(1)
+    df_progress = df_progress.sort_values('Progresso_Pct', ascending=False)
     
-    text_status = chart_status.mark_text(
-        radius=140,
-        fontSize=14,
-        fontWeight='bold'
-    ).encode(
-        text=alt.Text("Quantidade", format=".0f"),
-        color=alt.value("black")
-    )
+    # Definir quantos gráficos por linha baseado no número de disciplinas
+    num_disciplinas = len(df_progress)
+    cols_per_row = 3 if num_disciplinas > 6 else 2 if num_disciplinas > 2 else 1
     
-    st.altair_chart(chart_status + text_status, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with col2:
-    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+    # Criar gráficos de rosca para cada disciplina
+    for i in range(0, len(df_progress), cols_per_row):
+        cols = st.columns(cols_per_row)
+        
+        for j in range(cols_per_row):
+            if i + j < len(df_progress):
+                row = df_progress.iloc[i + j]
+                disciplina = row['Disciplinas']
+                feito = int(row['Feito'])
+                pendente = int(row['Pendente'])
+                total = int(row['Total'])
+                progresso_pct = row['Progresso_Pct']
+                
+                with cols[j]:
+                    # Preparar dados para o gráfico de rosca
+                    if total > 0:
+                        chart_data = pd.DataFrame({
+                            'Status': ['Feito', 'Pendente'],
+                            'Quantidade': [feito, pendente],
+                            'Percentual': [progresso_pct, 100 - progresso_pct]
+                        })
+                        
+                        # Definir cor baseada no progresso
+                        if progresso_pct == 100:
+                            color_scheme = ['#28a745', '#e9ecef']  # Verde e cinza claro
+                        elif progresso_pct >= 75:
+                            color_scheme = ['#198754', '#ffc107']  # Verde escuro e amarelo
+                        elif progresso_pct >= 50:
+                            color_scheme = ['#28a745', '#ffc107']  # Verde e amarelo
+                        elif progresso_pct >= 25:
+                            color_scheme = ['#ffc107', '#dc3545']  # Amarelo e vermelho
+                        else:
+                            color_scheme = ['#6c757d', '#dc3545']  # Cinza e vermelho
+                        
+                        # Criar gráfico de rosca
+                        chart = alt.Chart(chart_data).mark_arc(
+                            outerRadius=80,
+                            innerRadius=45,
+                            stroke='white',
+                            strokeWidth=2
+                        ).encode(
+                            theta=alt.Theta('Quantidade:Q'),
+                            color=alt.Color(
+                                'Status:N',
+                                scale=alt.Scale(
+                                    domain=['Feito', 'Pendente'],
+                                    range=color_scheme
+                                ),
+                                legend=None
+                            ),
+                            tooltip=[
+                                alt.Tooltip('Status:N', title='Status'),
+                                alt.Tooltip('Quantidade:Q', title='Quantidade'),
+                                alt.Tooltip('Percentual:Q', title='Percentual (%)', format='.1f')
+                            ]
+                        ).properties(
+                            width=180,
+                            height=180,
+                            title=alt.TitleParams(
+                                text=[disciplina, f"{progresso_pct:.1f}% concluído"],
+                                fontSize=12,
+                                fontWeight='bold',
+                                anchor='start',
+                                color='#2c3e50'
+                            )
+                        ).resolve_scale(
+                            color='independent'
+                        )
+                        
+                        # Adicionar texto no centro com o percentual
+                        text_chart = alt.Chart(pd.DataFrame({'x': [0], 'y': [0], 'text': [f"{progresso_pct:.0f}%"]})).mark_text(
+                            fontSize=18,
+                            fontWeight='bold',
+                            color='#2c3e50'
+                        ).encode(
+                            x=alt.X('x:Q', scale=alt.Scale(domain=[-1, 1])),
+                            y=alt.Y('y:Q', scale=alt.Scale(domain=[-1, 1])),
+                            text='text:N'
+                        ).properties(
+                            width=180,
+                            height=180
+                        )
+                        
+                        # Combinar os gráficos
+                        combined_chart = (chart + text_chart).resolve_scale(
+                            x='shared',
+                            y='shared'
+                        )
+                        
+                        st.altair_chart(combined_chart, use_container_width=False)
+                        
+                        # Adicionar informações detalhadas abaixo do gráfico
+                        st.markdown(f"""
+                        <div style="text-align: center; margin-top: -10px; padding: 10px; 
+                                    background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
+                            <small style="color: #6c757d;">
+                                <strong>Total:</strong> {total} • 
+                                <span style="color: #28a745;"><strong>Feito:</strong> {feito}</span> • 
+                                <span style="color: #ffc107;"><strong>Pendente:</strong> {pendente}</span>
+                            </small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        # Caso não tenha dados
+                        st.markdown(f"""
+                        <div style="text-align: center; padding: 40px; 
+                                    background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
+                            <h4 style="color: #6c757d; margin-bottom: 10px;">{disciplina}</h4>
+                            <p style="color: #6c757d; font-style: italic;">Nenhum conteúdo cadastrado</p>
+                        </div>
+                        """, unsafe_allow_html=True)
     
-    # Gráfico 2: Distribuição por Disciplinas
-    chart_disciplinas = alt.Chart(df_grouped).mark_arc(
-        outerRadius=120,
-        innerRadius=60,
-        stroke='white',
-        strokeWidth=2
-    ).encode(
-        theta=alt.Theta(field="Total", type="quantitative"),
-        color=alt.Color(
-            field="Disciplinas", 
-            type="nominal", 
-            title="Disciplina",
-            scale=alt.Scale(scheme='category20')
-        ),
-        tooltip=["Disciplinas", "Total"]
-    ).properties(
-        title=alt.TitleParams(
-            text="Distribuição por Disciplina",
-            fontSize=16,
-            fontWeight='bold'
-        ),
-        width=300,
-        height=300
-    )
+    # Resumo estatístico dos gráficos
+    st.markdown("### 📈 Resumo Estatístico")
     
-    text_disciplinas = chart_disciplinas.mark_text(
-        radius=140,
-        fontSize=12,
-        fontWeight='bold'
-    ).encode(
-        text=alt.Text("Total", format=".0f"),
-        color=alt.value("black")
-    )
-    
-    st.altair_chart(chart_disciplinas + text_disciplinas, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# --- Gráfico de Barras por Disciplina ---
-st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-
-chart_barras = alt.Chart(df_melted).mark_bar().encode(
-    x=alt.X('Disciplinas:N', title='Disciplinas', sort='-y'),
-    y=alt.Y('Quantidade:Q', title='Quantidade de Conteúdos'),
-    color=alt.Color(
-        'Status:N',
-        scale=alt.Scale(range=["#28a745", "#ffc107"]),
-        title="Status"
-    ),
-    tooltip=['Disciplinas', 'Status', 'Quantidade']
-).properties(
-    title=alt.TitleParams(
-        text="Conteúdos por Disciplina e Status",
-        fontSize=18,
-        fontWeight='bold'
-    ),
-    width=800,
-    height=400
-)
-
-st.altair_chart(chart_barras, use_container_width=True)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# --- Filtros e Lista de Conteúdos ---
-st.markdown("""
-<div class="section-header">
-    <h2>🔍 Lista Detalhada de Conteúdos</h2>
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="filter-container">', unsafe_allow_html=True)
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    all_disciplinas = ["Todos"] + sorted(df["Disciplinas"].unique().tolist())
-    selected_disciplina = st.selectbox("🎯 Filtrar por Disciplina:", all_disciplinas)
-
-with col2:
-    all_status_geral = ["Todos"] + sorted(df["Status Geral"].unique().tolist())
-    selected_status_geral = st.selectbox("📊 Filtrar por Status:", all_status_geral)
-
-with col3:
-    # Botão para limpar filtros
-    if st.button("🔄 Limpar Filtros"):
-        st.experimental_rerun()
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Aplicar filtros
-filtered_df = df.copy()
-
-if selected_disciplina != "Todos":
-    filtered_df = filtered_df[filtered_df["Disciplinas"] == selected_disciplina]
-
-if selected_status_geral != "Todos":
-    filtered_df = filtered_df[filtered_df["Status Geral"] == selected_status_geral]
-
-# Função para aplicar cores aos status
-def color_status(val):
-    if val == "Feito":
-        return 'background-color: #d4edda; color: #155724; font-weight: bold; border-radius: 10px; padding: 5px;'
-    elif val == "Pendente":
-        return 'background-color: #fff3cd; color: #856404; font-weight: bold; border-radius: 10px; padding: 5px;'
-    elif val == "Em Andamento":
-        return 'background-color: #cce5ff; color: #004085; font-weight: bold; border-radius: 10px; padding: 5px;'
-    elif val == "Não Iniciado":
-        return 'background-color: #f8d7da; color: #721c24; font-weight: bold; border-radius: 10px; padding: 5px;'
-    return ''
-
-# Exibir informações dos filtros aplicados
-if selected_disciplina != "Todos" or selected_status_geral != "Todos":
-    filtros_aplicados = []
-    if selected_disciplina != "Todos":
-        filtros_aplicados.append(f"Disciplina: {selected_disciplina}")
-    if selected_status_geral != "Todos":
-        filtros_aplicados.append(f"Status: {selected_status_geral}")
-    
-    st.info(f"🔍 Filtros aplicados: {' | '.join(filtros_aplicados)} | Resultados: {len(filtered_df)} registros")
-
-# Preparar dados para exibição
-display_df = filtered_df[["Disciplinas", "Feito", "Pendente", "Total", "Status Geral"]].copy()
-
-# Verificar se existe coluna de conteúdo
-content_columns = [col for col in df.columns if 'conteudo' in col.lower() or 'conteúdo' in col.lower()]
-if content_columns:
-    display_df = filtered_df[["Disciplinas"] + content_columns + ["Feito", "Pendente", "Total", "Status Geral"]].copy()
-
-# Aplicar estilo à tabela
-styled_df = display_df.style.applymap(color_status, subset=['Status Geral'])
-
-# Exibir tabela
-st.dataframe(
-    styled_df,
-    use_container_width=True,
-    height=400
-)
-
-# --- Resumo dos Filtros ---
-if len(filtered_df) > 0:
-    st.markdown("### 📈 Resumo dos Dados Filtrados")
-    
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        feito_filtrado = int(filtered_df['Feito'].sum())
-        st.metric("✅ Total Feito", feito_filtrado)
+        disciplinas_completas = len(df_progress[df_progress['Progresso_Pct'] == 100])
+        st.metric("🏆 Disciplinas Completas", disciplinas_completas)
     
     with col2:
-        pendente_filtrado = int(filtered_df['Pendente'].sum())
-        st.metric("⏳ Total Pendente", pendente_filtrado)
+        disciplinas_andamento = len(df_progress[(df_progress['Progresso_Pct'] > 0) & (df_progress['Progresso_Pct'] < 100)])
+        st.metric("🔄 Em Andamento", disciplinas_andamento)
     
     with col3:
-        total_filtrado = feito_filtrado + pendente_filtrado
-        progresso_filtrado = (feito_filtrado / total_filtrado * 100) if total_filtrado > 0 else 0
-        st.metric("📊 Progresso", f"{progresso_filtrado:.1f}%")
+        disciplinas_nao_iniciadas = len(df_progress[df_progress['Progresso_Pct'] == 0])
+        st.metric("⭕ Não Iniciadas", disciplinas_nao_iniciadas)
+    
+    with col4:
+        progresso_medio = df_progress['Progresso_Pct'].mean()
+        st.metric("📊 Progresso Médio", f"{progresso_medio:.1f}%")
 
-# --- Footer ---
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #7f8c8d; padding: 2rem;">
-    <p>📚 Dashboard de Disciplinas | Desenvolvido com ❤️ usando Streamlit</p>
-    <p>🔄 Dados atualizados automaticamente a cada 5 minutos</p>
-</div>
-""", unsafe_allow_html=True)
+    # --- Filtros e Tabela ---
+    st.markdown("""
+    <div class="section-header">
+        <h2>🔍 Dados Detalhados</h2>
+    </div>
+    """, unsafe_allow_html=True)
 
-# --- Informações de Debug (apenas para desenvolvimento) ---
-if st.sidebar.checkbox("🔧 Modo Debug"):
-    st.sidebar.markdown("### 🔍 Informações de Debug")
-    st.sidebar.write("**Colunas da planilha:**")
-    st.sidebar.write(df.columns.tolist())
-    st.sidebar.write("**Shape dos dados:**")
-    st.sidebar.write(f"{df.shape[0]} linhas x {df.shape[1]} colunas")
-    st.sidebar.write("**Tipos de dados:**")
-    st.sidebar.write(df.dtypes)
+    # Filtros
+    st.markdown('<div class="filter-container">', unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns(4)
 
+    with col1:
+        disciplinas_options = ["Todas"] + sorted(df["Disciplinas"].unique().tolist())
+        selected_disciplina = st.selectbox("🎯 Disciplina:", disciplinas_options)
+
+    with col2:
+        status_options = ["Todos"] + sorted(df["Status_Geral"].unique().tolist())
+        selected_status = st.selectbox("📊 Status:", status_options)
+
+    with col3:
+        min_progresso = st.slider("📈 Progresso mínimo (%):", 0, 100, 0)
+
+    with col4:
+        if st.button("🔄 Atualizar Dados"):
+            st.cache_data.clear()
+            st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Aplicar filtros
+    filtered_df = df.copy()
+    
+    if selected_disciplina != "Todas":
+        filtered_df = filtered_df[filtered_df["Disciplinas"] == selected_disciplina]
+    
+    if selected_status != "Todos":
+        filtered_df = filtered_df[filtered_df["Status_Geral"] == selected_status]
+    
+    filtered_df = filtered_df[filtered_df["Progresso_Pct"] >= min_progresso]
+
+    # Mostrar informações dos filtros
+    if selected_disciplina != "Todas" or selected_status != "Todos" or min_progresso > 0:
+        filtros_ativos = []
+        if selected_disciplina != "Todas":
+            filtros_ativos.append(f"Disciplina: {selected_disciplina}")
+        if selected_status != "Todos":
+            filtros_ativos.append(f"Status: {selected_status}")
+        if min_progresso > 0:
+            filtros_ativos.append(f"Progresso ≥ {min_progresso}%")
+        
+        st.info(f"🔍 Filtros ativos: {' | '.join(filtros_ativos)} | Registros: {len(filtered_df)}")
+
+    # Preparar dados para exibição
+    if len(filtered_df) > 0:
+        display_columns = ["Disciplinas", "Feito", "Pendente", "Total", "Progresso_Pct", "Status_Geral"]
+        
+        # Buscar colunas de conteúdo
+        content_columns = [col for col in df.columns 
+                          if any(keyword in col.lower() for keyword in ['conteudo', 'conteúdo', 'topico', 'tópico', 'assunto'])]
+        
+        if content_columns:
+            display_columns = ["Disciplinas"] + content_columns[:3] + ["Feito", "Pendente", "Total", "Progresso_Pct", "Status_Geral"]
+        
+        display_df = filtered_df[display_columns].copy()
+        display_df['Progresso_Pct'] = display_df['Progresso_Pct'].round(1).astype(str) + '%'
+        
+        # Renomear colunas para exibição
+        column_names = {
+            'Progresso_Pct': 'Progresso (%)',
+            'Status_Geral': 'Status'
+        }
+        display_df = display_df.rename(columns=column_names)
+        
+        # Exibir tabela
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=400,
+            column_config={
+                "Status": st.column_config.TextColumn(
+                    "Status",
+                    help="Status atual da disciplina"
+                ),
+                "Progresso (%)": st.column_config.TextColumn(
+                    "Progresso (%)",
+                    help="Percentual de conclusão"
+                )
+            }
+        )
+
+        # Resumo dos dados filtrados
+        if len(filtered_df) > 0:
+            st.markdown("### 📈 Resumo dos Dados Filtrados")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                feito_filtrado = int(filtered_df['Feito'].sum())
+                st.metric("✅ Total Concluído", feito_filtrado)
+            
+            with col2:
+                pendente_filtrado = int(filtered_df['Pendente'].sum())
+                st.metric("⏳ Total Pendente", pendente_filtrado)
+            
+            with col3:
+                total_filtrado = feito_filtrado + pendente_filtrado
+                st.metric("📚 Total de Conteúdos", total_filtrado)
+            
+            with col4:
+                progresso_filtrado = (feito_filtrado / total_filtrado * 100) if total_filtrado > 0 else 0
+                st.metric("📊 Progresso Médio", f"{progresso_filtrado:.1f}%")
+    else:
+        st.warning("⚠️ Nenhum registro encontrado com os filtros aplicados.")
+
+    # --- Sidebar com Informações ---
+    with st.sidebar:
+        st.markdown("### ⚙️ Configurações")
+        
+        # Informações do sistema
+        st.markdown("#### 📊 Informações dos Dados")
+        st.write(f"**Total de registros:** {len(df)}")
+        st.write(f"**Disciplinas únicas:** {len(df['Disciplinas'].unique())}")
+        st.write(f"**Última atualização:** {current_time}")
+        
+        st.markdown("---")
+        
+        # Opções de visualização
+        st.markdown("#### 🎨 Opções de Visualização")
+        show_empty_disciplines = st.checkbox("Mostrar disciplinas vazias", value=False)
+        
+        if show_empty_disciplines:
+            st.info("Incluindo disciplinas sem conteúdo nos gráficos")
+        
+        # Estatísticas rápidas
+        st.markdown("#### 📈 Estatísticas Rápidas")
+        disciplina_mais_avancada = df.loc[df['Progresso_Pct'].idxmax(), 'Disciplinas'] if len(df) > 0 else "N/A"
+        disciplina_menos_avancada = df.loc[df['Progresso_Pct'].idxmin(), 'Disciplinas'] if len(df) > 0 else "N/A"
+        
+        st.write(f"**🏆 Mais avançada:** {disciplina_mais_avancada}")
+        st.write(f"**🔄 Menos avançada:** {disciplina_menos_avancada}")
+        
+        # Modo debug
+        if st.checkbox("🔧 Modo Debug"):
+            st.markdown("#### 🔍 Debug Info")
+            st.write("**Colunas disponíveis:**")
+            st.code(", ".join(df.columns.tolist()))
+            st.write("**Tipos de dados:**")
+            st.code(str(df.dtypes))
+
+    # --- Footer ---
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center; color: #7f8c8d; padding: 2rem;">
+        <p>📚 Dashboard de Disciplinas | Desenvolvido com ❤️ usando Streamlit e Plotly</p>
+        <p>🔄 Dados sincronizados automaticamente com Google Sheets</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- Executar Aplicação ---
+if __name__ == "__main__":
+    main()
