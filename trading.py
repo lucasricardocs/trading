@@ -1,15 +1,3 @@
-Compreendido. Peço desculpas pela confusão com os nomes das abas.
-
-Com base na sua correção, a aba principal para o dashboard se chama `Data`, e a aba para a análise de conteúdo se chama `Dados`.
-
-Fiz a alteração nas variáveis de configuração no início do código. O restante da lógica de processamento e dos gráficos está mantido, já que ela já estava preparada para ler essas duas abas de forma independente.
-
-Aqui está o código completo e corrigido, refletindo os nomes das abas que você especificou: `Data` e `Dados`.
-
-```python
-# app.py
-# Este é o arquivo único para o dashboard com abas
-
 import streamlit as st
 import pandas as pd
 import altair as alt
