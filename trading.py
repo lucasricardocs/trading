@@ -19,8 +19,8 @@ WORKSHEET_NAME = "dados"
 
 # --- Configuração da Página ---
 st.set_page_config(
-    page_title="Trading Analytics",
-    page_icon="📊",
+    page_title="Dashboard de Disciplinas",
+    page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -31,14 +31,21 @@ COLOR_NEGATIVE = "#dc3545"  # Vermelho
 COLOR_NEUTRAL = "#4fc3f7"   # Azul
 COLOR_BASE = "#f0f0f0"      # Cinza claro
 
+# Paleta de cores para as disciplinas
+DISCIPLINA_COLORS = [
+    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
+    "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9"
+]
+
 # --- Funções ---
 @st.cache_resource
 def get_google_auth():
+    """Autenticação com Google Sheets"""
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
               'https://www.googleapis.com/auth/drive']
     try:
         if "google_credentials" not in st.secrets:
-            st.error("Credenciais não encontradas")
+            st.error("Credenciais do Google não encontradas nos secrets do Streamlit")
             return None
         
         credentials_dict = st.secrets["google_credentials"]
@@ -50,11 +57,12 @@ def get_google_auth():
         gc = gspread.authorize(creds)
         return gc
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro na autenticação: {e}")
         return None
 
 @st.cache_resource
 def get_worksheet():
+    """Obter planilha do Google Sheets"""
     gc = get_google_auth()
     if gc:
         try:
@@ -65,91 +73,264 @@ def get_worksheet():
             st.error("Planilha não encontrada")
             return None
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Erro ao acessar planilha: {e}")
             return None
     return None
 
 @st.cache_data(ttl=60)
-
-
-
-def get_worksheet_data():
+def load_data():
+    """Carregar dados da planilha"""
     worksheet = get_worksheet()
     if worksheet:
         try:
+            # Obter todos os dados
             data = worksheet.get_all_records()
             df = pd.DataFrame(data)
-            # Converter 'Peso' e 'num_questoes' para numérico, tratando erros
-            df['Peso'] = pd.to_numeric(df['Peso'], errors='coerce').fillna(0)
-            df['num_questoes'] = pd.to_numeric(df['num_questoes'], errors='coerce').fillna(0)
+            
+            # Limpar dados vazios
+            df = df.dropna(subset=['Matéria'])
+            df = df[df['Matéria'] != '']
+            
             return df
         except Exception as e:
-            st.error(f"Erro ao ler dados da planilha: {e}")
+            st.error(f"Erro ao carregar dados: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
 
-# --- Main App ---
+def create_donut_chart(data, title, color_scheme=None):
+    """Criar gráfico de rosca com Altair"""
+    if data.empty:
+        return alt.Chart().mark_text(text="Sem dados", fontSize=16)
+    
+    # Preparar dados para o gráfico de rosca
+    total = data['Peso'].sum()
+    data_chart = data.copy()
+    data_chart['percentage'] = (data_chart['Peso'] / total * 100).round(1)
+    data_chart['angle'] = data_chart['Peso'] / total * 360
+    
+    # Gráfico de rosca (donut chart)
+    base = alt.Chart(data_chart).add_selection(
+        alt.selection_single()
+    )
+    
+    # Arco externo
+    outer_arc = base.mark_arc(
+        innerRadius=50,
+        outerRadius=100,
+        stroke='white',
+        strokeWidth=2
+    ).encode(
+        theta=alt.Theta('Peso:Q'),
+        color=alt.Color(
+            'Conteúdo:N',
+            scale=alt.Scale(range=color_scheme if color_scheme else DISCIPLINA_COLORS),
+            legend=alt.Legend(
+                orient='right',
+                titleFontSize=12,
+                labelFontSize=10,
+                symbolSize=100
+            )
+        ),
+        tooltip=[
+            alt.Tooltip('Conteúdo:N', title='Conteúdo'),
+            alt.Tooltip('Peso:Q', title='Peso'),
+            alt.Tooltip('percentage:Q', title='Percentual (%)', format='.1f')
+        ]
+    )
+    
+    # Texto central com o total
+    text_center = alt.Chart(pd.DataFrame({'total': [total]})).mark_text(
+        align='center',
+        baseline='middle',
+        fontSize=20,
+        fontWeight='bold',
+        color='#333'
+    ).encode(
+        text=alt.Text('total:Q', format='.0f')
+    )
+    
+    # Título
+    title_chart = alt.Chart(pd.DataFrame({'title': [title]})).mark_text(
+        align='center',
+        baseline='top',
+        fontSize=16,
+        fontWeight='bold',
+        dy=-140,
+        color='#333'
+    ).encode(
+        text='title:N'
+    )
+    
+    return (outer_arc + text_center + title_chart).resolve_scale(
+        color='independent'
+    ).properties(
+        width=250,
+        height=250,
+        title=alt.TitleParams(text=title, fontSize=16, anchor='start')
+    )
+
+def create_summary_chart(df):
+    """Criar gráfico resumo de todas as disciplinas"""
+    disciplinas_summary = df.groupby('Matéria')['Peso'].sum().reset_index()
+    disciplinas_summary = disciplinas_summary.sort_values('Peso', ascending=False)
+    
+    total_geral = disciplinas_summary['Peso'].sum()
+    disciplinas_summary['percentage'] = (disciplinas_summary['Peso'] / total_geral * 100).round(1)
+    
+    # Gráfico de rosca resumo
+    base = alt.Chart(disciplinas_summary)
+    
+    outer_arc = base.mark_arc(
+        innerRadius=60,
+        outerRadius=120,
+        stroke='white',
+        strokeWidth=3
+    ).encode(
+        theta=alt.Theta('Peso:Q'),
+        color=alt.Color(
+            'Matéria:N',
+            scale=alt.Scale(range=DISCIPLINA_COLORS),
+            legend=alt.Legend(
+                orient='right',
+                titleFontSize=14,
+                labelFontSize=12,
+                symbolSize=150
+            )
+        ),
+        tooltip=[
+            alt.Tooltip('Matéria:N', title='Disciplina'),
+            alt.Tooltip('Peso:Q', title='Peso Total'),
+            alt.Tooltip('percentage:Q', title='Percentual (%)', format='.1f')
+        ]
+    )
+    
+    # Texto central
+    text_center = alt.Chart(pd.DataFrame({'total': [total_geral]})).mark_text(
+        align='center',
+        baseline='middle',
+        fontSize=24,
+        fontWeight='bold',
+        color='#333'
+    ).encode(
+        text=alt.Text('total:Q', format='.0f')
+    )
+    
+    return (outer_arc + text_center).resolve_scale(
+        color='independent'
+    ).properties(
+        width=300,
+        height=300,
+        title=alt.TitleParams(text="Resumo Geral das Disciplinas", fontSize=18, anchor='start')
+    )
 
 def main():
-    st.title("📊 Dashboard de Evolução por Disciplina")
-
-    # Contador de dias para a prova
-    exam_date = date(2025, 9, 21)
-    today = date.today()
-    days_left = (exam_date - today).days
-    st.info(f"Faltam {days_left} dias para a prova (21/09/2025)!")
-
-    df = get_worksheet_data()
-
+    """Função principal do dashboard"""
+    st.title("📚 Dashboard de Evolução por Disciplinas")
+    st.markdown("---")
+    
+    # Carregar dados
+    with st.spinner("Carregando dados da planilha..."):
+        df = load_data()
+    
     if df.empty:
-        st.warning("Não foi possível carregar os dados da planilha.")
+        st.error("Não foi possível carregar os dados da planilha.")
+        st.info("Verifique se as credenciais do Google estão configuradas corretamente nos secrets do Streamlit.")
         return
-
-    st.subheader("Evolução por Disciplina")
-
-    # Agrupar por disciplina e calcular a soma do 'Peso'
-    discipline_summary = df.groupby('Matéria')['Peso'].sum().reset_index()
-
-    # Criar gráficos de rosca para cada disciplina
-    for index, row in discipline_summary.iterrows():
-        discipline = row['Matéria']
-        total_peso = row['Peso']
-
-        st.write(f"### {discipline}")
-
-        # Para o gráfico de rosca, precisamos de uma proporção.
-        # Como não temos dados de 'evolução' explícitos, vamos simular
-        # uma proporção baseada no 'Peso' total da disciplina em relação ao total geral.
-        # Ou, para um gráfico de rosca mais simples, podemos mostrar a distribuição
-        # dos 'Pesos' dentro da própria disciplina, se houver subcategorias.
-        # Por enquanto, vou criar um gráfico de rosca simples mostrando o 'Peso' total
-        # da disciplina em relação a um 'total possível' hipotético para fins de visualização.
-        # Idealmente, precisaríamos de mais dados para uma 'evolução' real.
-
-        # Exemplo: Gráfico de rosca mostrando o 'Peso' da disciplina vs. um 'total máximo' (arbitrário para demonstração)
-        # Se 'Peso' representa a pontuação em uma disciplina, e o máximo é 100
-        max_peso_hipotetico = 100 # Isso precisaria ser definido com base nos dados reais ou requisitos
-        data_for_donut = pd.DataFrame({
-            'category': ['Concluído', 'A Concluir'],
-            'value': [total_peso, max_peso_hipotetico - total_peso]
-        })
-
-        chart = alt.Chart(data_for_donut).mark_arc(outerRadius=120).encode(
-            theta=alt.Theta(field="value", type="quantitative"),
-            color=alt.Color(field="category", scale=alt.Scale(range=[COLOR_POSITIVE, COLOR_BASE])),
-            order=alt.Order("value", sort="descending"),
-            tooltip=["category", "value"]
-        ).properties(
-            title=f"Progresso em {discipline}"
+    
+    # Sidebar com informações
+    st.sidebar.header("📊 Informações Gerais")
+    total_disciplinas = df['Matéria'].nunique()
+    total_conteudos = len(df)
+    peso_total = df['Peso'].sum()
+    
+    st.sidebar.metric("Total de Disciplinas", total_disciplinas)
+    st.sidebar.metric("Total de Conteúdos", total_conteudos)
+    st.sidebar.metric("Peso Total", peso_total)
+    
+    # Filtros
+    st.sidebar.header("🔍 Filtros")
+    disciplinas_disponiveis = sorted(df['Matéria'].unique())
+    disciplinas_selecionadas = st.sidebar.multiselect(
+        "Selecione as disciplinas:",
+        disciplinas_disponiveis,
+        default=disciplinas_disponiveis
+    )
+    
+    # Filtrar dados
+    df_filtrado = df[df['Matéria'].isin(disciplinas_selecionadas)]
+    
+    if df_filtrado.empty:
+        st.warning("Nenhuma disciplina selecionada ou dados disponíveis.")
+        return
+    
+    # Layout principal
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.header("📈 Gráficos de Rosca por Disciplina")
+        
+        # Criar gráficos para cada disciplina
+        disciplinas = df_filtrado['Matéria'].unique()
+        
+        # Organizar em grid de 2 colunas
+        for i in range(0, len(disciplinas), 2):
+            cols = st.columns(2)
+            
+            for j, col in enumerate(cols):
+                if i + j < len(disciplinas):
+                    disciplina = disciplinas[i + j]
+                    dados_disciplina = df_filtrado[df_filtrado['Matéria'] == disciplina]
+                    
+                    with col:
+                        # Criar cores específicas para cada conteúdo da disciplina
+                        num_conteudos = len(dados_disciplina)
+                        colors = DISCIPLINA_COLORS[:num_conteudos] if num_conteudos <= len(DISCIPLINA_COLORS) else DISCIPLINA_COLORS * (num_conteudos // len(DISCIPLINA_COLORS) + 1)
+                        
+                        chart = create_donut_chart(dados_disciplina, disciplina, colors[:num_conteudos])
+                        st.altair_chart(chart, use_container_width=True)
+    
+    with col2:
+        st.header("📊 Resumo Geral")
+        
+        # Gráfico resumo
+        summary_chart = create_summary_chart(df_filtrado)
+        st.altair_chart(summary_chart, use_container_width=True)
+        
+        # Tabela de dados
+        st.subheader("📋 Dados Detalhados")
+        
+        # Preparar dados para exibição
+        df_display = df_filtrado.copy()
+        df_display = df_display.sort_values(['Matéria', 'Peso'], ascending=[True, False])
+        
+        # Mostrar tabela
+        st.dataframe(
+            df_display[['Matéria', 'Conteúdo', 'Peso']],
+            use_container_width=True,
+            hide_index=True
         )
-
-        text = chart.mark_text(radius=140).encode(
-            text=alt.Text("value", format=".1f"),
-            order=alt.Order("value", sort="descending"),
-            color=alt.value("black")
-        )
-
-        st.altair_chart(chart + text, use_container_width=True)
+        
+        # Estatísticas por disciplina
+        st.subheader("📈 Estatísticas por Disciplina")
+        stats_disciplina = df_filtrado.groupby('Matéria').agg({
+            'Peso': ['sum', 'mean', 'count']
+        }).round(2)
+        
+        stats_disciplina.columns = ['Total', 'Média', 'Qtd Conteúdos']
+        stats_disciplina = stats_disciplina.sort_values('Total', ascending=False)
+        
+        st.dataframe(stats_disciplina, use_container_width=True)
+    
+    # Rodapé
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style='text-align: center; color: #666; font-size: 12px;'>
+        Dashboard criado com Streamlit e Altair | Dados atualizados automaticamente
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 if __name__ == "__main__":
     main()
