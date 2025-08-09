@@ -83,17 +83,84 @@ def load_data():
     worksheet = get_worksheet()
     if worksheet:
         try:
-            # Obter todos os dados
-            data = worksheet.get_all_records()
-            df = pd.DataFrame(data)
+            # Método alternativo para lidar com cabeçalhos duplicados
+            all_values = worksheet.get_all_values()
+            
+            if not all_values:
+                st.warning("Planilha vazia")
+                return pd.DataFrame()
+            
+            # Pegar a primeira linha como cabeçalho e limpar
+            headers = all_values[0]
+            
+            # Limpar cabeçalhos vazios e duplicados
+            clean_headers = []
+            for i, header in enumerate(headers):
+                if header.strip():  # Se não estiver vazio
+                    clean_headers.append(header.strip())
+                else:
+                    clean_headers.append(f"Coluna_{i}")  # Nome padrão para colunas vazias
+            
+            # Pegar os dados (excluindo cabeçalho)
+            data_rows = all_values[1:]
+            
+            # Criar DataFrame
+            df = pd.DataFrame(data_rows, columns=clean_headers)
+            
+            # Verificar se as colunas necessárias existem
+            required_columns = ['Matéria', 'STATUS']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            
+            if missing_columns:
+                # Tentar mapear colunas similares
+                column_mapping = {}
+                for col in df.columns:
+                    col_lower = col.lower()
+                    if 'matéria' in col_lower or 'materia' in col_lower or 'disciplina' in col_lower:
+                        column_mapping[col] = 'Matéria'
+                    elif 'status' in col_lower or 'situação' in col_lower or 'situacao' in col_lower:
+                        column_mapping[col] = 'STATUS'
+                
+                # Renomear colunas
+                df = df.rename(columns=column_mapping)
+                
+                # Verificar novamente
+                missing_columns = [col for col in required_columns if col not in df.columns]
+                if missing_columns:
+                    st.error(f"Colunas obrigatórias não encontradas: {missing_columns}")
+                    st.info(f"Colunas disponíveis: {list(df.columns)}")
+                    return pd.DataFrame()
             
             # Limpar dados vazios
             df = df.dropna(subset=['Matéria'])
             df = df[df['Matéria'] != '']
             
+            # Limpar valores de STATUS
+            df['STATUS'] = df['STATUS'].str.strip().str.upper()
+            
+            # Filtrar apenas status válidos
+            valid_status = ['FEITO', 'PENDENTE']
+            df = df[df['STATUS'].isin(valid_status)]
+            
+            if df.empty:
+                st.warning("Nenhum dado válido encontrado após limpeza")
+                return pd.DataFrame()
+            
             return df
+            
         except Exception as e:
             st.error(f"Erro ao carregar dados: {e}")
+            # Adicionar informações de debug
+            with st.expander("🔍 Informações de Debug"):
+                st.write(f"Erro detalhado: {str(e)}")
+                try:
+                    all_values = worksheet.get_all_values()
+                    if all_values:
+                        st.write("Primeira linha (cabeçalhos):")
+                        st.write(all_values[0])
+                        st.write(f"Total de linhas: {len(all_values)}")
+                except:
+                    st.write("Não foi possível acessar os dados da planilha")
             return pd.DataFrame()
     return pd.DataFrame()
 
@@ -260,6 +327,9 @@ def main():
             st.cache_data.clear()
             st.rerun()
         
+        # Botão para debug
+        debug_mode = st.checkbox("🔍 Modo Debug", help="Mostrar informações detalhadas para diagnóstico")
+        
         # Informações
         st.markdown("### 📊 Informações")
         st.info("Dados atualizados automaticamente a cada 60 segundos")
@@ -276,15 +346,55 @@ def main():
     with st.spinner("Carregando dados..."):
         df = load_data()
     
+    # Modo debug
+    if debug_mode and not df.empty:
+        with st.expander("🔍 Dados Carregados (Debug)"):
+            st.write("**Estrutura do DataFrame:**")
+            st.write(f"Forma: {df.shape}")
+            st.write(f"Colunas: {list(df.columns)}")
+            st.write("**Primeiras 5 linhas:**")
+            st.dataframe(df.head())
+            st.write("**Valores únicos na coluna STATUS:**")
+            st.write(df['STATUS'].value_counts())
+            st.write("**Valores únicos na coluna Matéria:**")
+            st.write(df['Matéria'].value_counts())
+    
     if df.empty:
         st.error("❌ Não foi possível carregar os dados. Verifique a conexão com o Google Sheets.")
+        
+        # Sugestões para resolver o problema
+        with st.expander("💡 Como resolver este problema"):
+            st.markdown("""
+            **Possíveis soluções:**
+            
+            1. **Verificar a planilha:**
+               - Certifique-se de que existe uma aba chamada "dados"
+               - Verifique se há cabeçalhos nas colunas
+               - Remova colunas vazias do cabeçalho
+            
+            2. **Colunas obrigatórias:**
+               - `Matéria` ou `Disciplina`: Nome da matéria
+               - `STATUS`: Deve conter "FEITO" ou "PENDENTE"
+            
+            3. **Formato esperado:**
+               ```
+               | Matéria              | Conteúdo           | STATUS   |
+               |----------------------|-------------------|----------|
+               | LÍNGUA PORTUGUESA    | Interpretação...   | FEITO    |
+               | RACIOCÍNIO LÓGICO    | Lógica...         | PENDENTE |
+               ```
+            
+            4. **Verificar permissões:**
+               - A conta de serviço tem acesso à planilha?
+               - O ID da planilha está correto?
+            """)
         return
     
     # Processar dados
     disciplinas_stats = process_data_for_charts(df)
     
     if not disciplinas_stats:
-        st.warning("⚠️ Nenhum dado válido encontrado.")
+        st.warning("⚠️ Nenhum dado válido encontrado após processamento.")
         return
     
     # Métricas gerais
