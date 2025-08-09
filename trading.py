@@ -235,8 +235,9 @@ st.markdown("""
 def show_error(message, details=None):
     """Exibe mensagem de erro com detalhes opcionais"""
     st.error(f"❌ {message}")
-    if details and st.sidebar.checkbox("🔍 Ver detalhes do erro"):
-        st.sidebar.code(details)
+    if details:
+        st.error("**Detalhes do erro:**")
+        st.code(details)
 
 def show_loading(message="Carregando..."):
     """Exibe spinner de carregamento"""
@@ -269,35 +270,33 @@ def get_gspread_client():
         gc = gspread.authorize(creds)
         return gc
     except Exception as e:
-        show_error("Erro ao autenticar com o Google Sheets", str(e))
+        st.error(f"❌ Erro ao autenticar com o Google Sheets: {str(e)}")
         st.info("💡 Verifique se as credenciais estão configuradas corretamente no secrets.toml")
-        st.stop()
+        return None
 
 @st.cache_data(ttl=timedelta(minutes=DATA_REFRESH_MINUTES))
 def load_data(spreadsheet_id, worksheet_name):
     """Carrega dados da planilha Google Sheets"""
     try:
         gc = get_gspread_client()
+        if gc is None:
+            return None
+            
         spreadsheet = gc.open_by_id(spreadsheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
         data = worksheet.get_all_records()
         
         if not data:
-            raise ValueError("Planilha está vazia ou não contém dados válidos")
+            return None
         
         df = pd.DataFrame(data)
         return df
     except SpreadsheetNotFound:
-        show_error(f"Planilha com ID '{spreadsheet_id}' não encontrada")
-        st.info("💡 Verifique se o ID da planilha está correto e se a conta de serviço tem acesso.")
-        st.stop()
-    except APIError as e:
-        show_error("Erro de API do Google Sheets", str(e))
-        st.info("💡 Verifique se você não excedeu o limite de requisições da API.")
-        st.stop()
-    except Exception as e:
-        show_error("Erro ao carregar dados da planilha", str(e))
-        st.stop()
+        return None
+    except APIError:
+        return None
+    except Exception:
+        return None
 
 def process_data(df):
     """Processa e valida os dados carregados"""
@@ -306,10 +305,10 @@ def process_data(df):
     # Verificar se as colunas existem
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
-        show_error(f"Colunas não encontradas: {', '.join(missing_columns)}")
+        st.error(f"❌ Colunas não encontradas: {', '.join(missing_columns)}")
         st.info("📋 Colunas disponíveis na planilha:")
         st.write(df.columns.tolist())
-        st.stop()
+        return None
 
     # Converter colunas para numérico
     df['Feito'] = pd.to_numeric(df['Feito'], errors='coerce').fillna(0)
@@ -371,21 +370,29 @@ def main():
     with show_loading("Carregando dados da planilha..."):
         df = load_data(SPREADSHEET_ID, WORKSHEET_NAME)
 
-    if df is not None and not df.empty:
-        st.success("✅ Dados carregados com sucesso!")
-        
-        # Mostrar timestamp da última atualização
-        current_time = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
-        st.info(f"🕒 Última atualização: {current_time}")
-    else:
-        st.warning("⚠️ Não foi possível carregar os dados ou a planilha está vazia.")
+    # Verificar se os dados foram carregados com sucesso
+    if df is None:
+        st.error("❌ Não foi possível carregar os dados da planilha.")
+        st.info("💡 Possíveis causas:")
+        st.info("- Verifique se o ID da planilha está correto")
+        st.info("- Confirme se a conta de serviço tem acesso à planilha")
+        st.info("- Certifique-se de que a aba 'dados' existe")
+        st.info("- Verifique se as credenciais estão configuradas corretamente")
         st.stop()
+    
+    if df.empty:
+        st.warning("⚠️ A planilha está vazia ou não contém dados válidos.")
+        st.stop()
+    
+    st.success("✅ Dados carregados com sucesso!")
+    
+    # Mostrar timestamp da última atualização
+    current_time = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+    st.info(f"🕒 Última atualização: {current_time}")
 
     # Processar dados
-    try:
-        df = process_data(df)
-    except Exception as e:
-        show_error("Erro ao processar os dados", str(e))
+    df = process_data(df)
+    if df is None:
         st.stop()
 
     # --- Métricas Principais ---
@@ -887,11 +894,16 @@ def main():
         
         # Estatísticas rápidas
         st.markdown("#### 📈 Estatísticas Rápidas")
-        disciplina_mais_avancada = df.loc[df['Progresso_Pct'].idxmax(), 'Disciplinas'] if len(df) > 0 else "N/A"
-        disciplina_menos_avancada = df.loc[df['Progresso_Pct'].idxmin(), 'Disciplinas'] if len(df) > 0 else "N/A"
+        if len(df) > 0 and df['Progresso_Pct'].max() > 0:
+            disciplina_mais_avancada = df.loc[df['Progresso_Pct'].idxmax(), 'Disciplinas']
+            disciplina_menos_avancada = df.loc[df['Progresso_Pct'].idxmin(), 'Disciplinas']
+            
+            st.write(f"**🏆 Mais avançada:** {disciplina_mais_avancada}")
+            st.write(f"**🔄 Menos avançada:** {disciplina_menos_avancada}")
+        else:
+            st.write("**📊 Status:** Dados insuficientes para estatísticas")
         
-        st.write(f"**🏆 Mais avançada:** {disciplina_mais_avancada}")
-        st.write(f"**🔄 Menos avançada:** {disciplina_menos_avancada}")
+        st.markdown("---")
         
         # Modo debug
         if st.checkbox("🔧 Modo Debug"):
@@ -900,6 +912,10 @@ def main():
             st.code(", ".join(df.columns.tolist()))
             st.write("**Tipos de dados:**")
             st.code(str(df.dtypes))
+            st.write("**Primeiras 5 linhas:**")
+            st.dataframe(df.head())
+            st.write("**Shape dos dados:**")
+            st.write(f"{df.shape[0]} linhas x {df.shape[1]} colunas")
 
     # --- Footer ---
     st.markdown("---")
