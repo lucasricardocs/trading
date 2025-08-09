@@ -11,8 +11,7 @@ from gspread.exceptions import SpreadsheetNotFound, APIError
 import warnings
 import traceback
 import locale
-import plotly.express as px
-import plotly.graph_objects as go
+# Removido plotly - usando apenas Altair
 
 # Configurar localização para português
 try:
@@ -435,72 +434,170 @@ def main():
         st.subheader("🔄 Distribuição Geral")
         
         if total_conteudos > 0:
-            fig_pie = go.Figure(data=[go.Pie(
-                labels=['Concluído', 'Pendente'],
-                values=[total_feito, total_pendente],
-                hole=.4,
-                marker=dict(colors=['#28a745', '#ffc107']),
-                textinfo='label+percent+value',
-                textfont_size=12
-            )])
+            # Dados para o gráfico de status geral
+            status_data = pd.DataFrame({
+                'Status': ['Concluído', 'Pendente'],
+                'Quantidade': [total_feito, total_pendente]
+            })
             
-            fig_pie.update_layout(
-                title=dict(
-                    text="Status dos Conteúdos",
-                    x=0.5,
-                    font=dict(size=16, color='#2c3e50')
+            chart_status = alt.Chart(status_data).mark_arc(
+                outerRadius=120,
+                innerRadius=60,
+                stroke='white',
+                strokeWidth=2
+            ).encode(
+                theta=alt.Theta(field="Quantidade", type="quantitative"),
+                color=alt.Color(
+                    field="Status", 
+                    type="nominal", 
+                    title="Status",
+                    scale=alt.Scale(
+                        domain=['Concluído', 'Pendente'],
+                        range=["#28a745", "#ffc107"]
+                    )
                 ),
-                height=400,
-                showlegend=True,
-                margin=dict(t=60, b=20, l=20, r=20)
+                tooltip=[
+                    alt.Tooltip("Status", title="Status"),
+                    alt.Tooltip("Quantidade", title="Quantidade", format=".0f")
+                ]
+            ).properties(
+                title=alt.TitleParams(
+                    text="Status dos Conteúdos",
+                    fontSize=16,
+                    fontWeight='bold',
+                    anchor='start',
+                    color='#2c3e50'
+                ),
+                width=300,
+                height=300
             )
             
-            st.plotly_chart(fig_pie, use_container_width=True)
+            text_status = chart_status.mark_text(
+                radius=140,
+                fontSize=14,
+                fontWeight='bold',
+                color='black'
+            ).encode(
+                text=alt.Text("Quantidade", format=".0f")
+            )
+            
+            st.altair_chart(chart_status + text_status, use_container_width=True)
 
     with col2:
         # Gráfico de Barras - Por Disciplina
         st.subheader("📚 Por Disciplina")
         
         df_chart = df.groupby('Disciplinas')[['Feito', 'Pendente']].sum().reset_index()
-        
-        fig_bar = go.Figure()
-        
-        fig_bar.add_trace(go.Bar(
-            name='Concluído',
-            x=df_chart['Disciplinas'],
-            y=df_chart['Feito'],
-            marker_color='#28a745',
-            text=df_chart['Feito'],
-            textposition='auto'
-        ))
-        
-        fig_bar.add_trace(go.Bar(
-            name='Pendente',
-            x=df_chart['Disciplinas'],
-            y=df_chart['Pendente'],
-            marker_color='#ffc107',
-            text=df_chart['Pendente'],
-            textposition='auto'
-        ))
-        
-        fig_bar.update_layout(
-            title=dict(
-                text="Conteúdos por Disciplina",
-                x=0.5,
-                font=dict(size=16, color='#2c3e50')
-            ),
-            xaxis_title="Disciplinas",
-            yaxis_title="Quantidade",
-            barmode='group',
-            height=400,
-            margin=dict(t=60, b=80, l=20, r=20)
+        df_melted = df_chart.melt(
+            id_vars=['Disciplinas'], 
+            value_vars=['Feito', 'Pendente'],
+            var_name='Status', 
+            value_name='Quantidade'
         )
         
-        fig_bar.update_xaxis(tickangle=45)
+        # Renomear para melhor exibição
+        df_melted['Status'] = df_melted['Status'].replace({'Feito': 'Concluído', 'Pendente': 'Pendente'})
         
-        st.plotly_chart(fig_bar, use_container_width=True)
+        chart_barras = alt.Chart(df_melted).mark_bar().encode(
+            x=alt.X('Disciplinas:N', title='Disciplinas', axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y('Quantidade:Q', title='Quantidade de Conteúdos'),
+            color=alt.Color(
+                'Status:N',
+                scale=alt.Scale(
+                    domain=['Concluído', 'Pendente'],
+                    range=["#28a745", "#ffc107"]
+                ),
+                title="Status"
+            ),
+            tooltip=[
+                alt.Tooltip('Disciplinas:N', title='Disciplina'), 
+                alt.Tooltip('Status:N', title='Status'), 
+                alt.Tooltip('Quantidade:Q', title='Quantidade')
+            ]
+        ).properties(
+            title=alt.TitleParams(
+                text="Conteúdos por Disciplina",
+                fontSize=16,
+                fontWeight='bold',
+                anchor='start',
+                color='#2c3e50'
+            ),
+            width=400,
+            height=300
+        )
+        
+        st.altair_chart(chart_barras, use_container_width=True)
 
-    # Gráficos de Rosca Individuais por Disciplina
+    # Gráfico de Barras Horizontais - Progresso Geral
+    st.subheader("📊 Ranking de Progresso por Disciplina")
+    
+    # Calcular progresso por disciplina para o gráfico de barras
+    df_progress_bar = df.groupby('Disciplinas').agg({
+        'Feito': 'sum',
+        'Pendente': 'sum',
+        'Total': 'sum'
+    }).reset_index()
+    
+    df_progress_bar['Progresso_Pct'] = (df_progress_bar['Feito'] / df_progress_bar['Total'] * 100).round(1)
+    df_progress_bar = df_progress_bar.sort_values('Progresso_Pct', ascending=True)
+    
+    # Criar escala de cores baseada no progresso
+    def get_color_for_progress(progress):
+        if progress >= 75:
+            return "#198754"  # Verde escuro
+        elif progress >= 50:
+            return "#28a745"  # Verde
+        elif progress >= 25:
+            return "#ffc107"  # Amarelo
+        else:
+            return "#dc3545"  # Vermelho
+    
+    df_progress_bar['Cor'] = df_progress_bar['Progresso_Pct'].apply(get_color_for_progress)
+    
+    chart_progress = alt.Chart(df_progress_bar).mark_bar().encode(
+        x=alt.X('Progresso_Pct:Q', title='Progresso (%)', scale=alt.Scale(domain=[0, 100])),
+        y=alt.Y('Disciplinas:N', title='Disciplinas', sort='-x'),
+        color=alt.Color(
+            'Progresso_Pct:Q',
+            scale=alt.Scale(
+                domain=[0, 25, 50, 75, 100],
+                range=["#dc3545", "#ffc107", "#28a745", "#198754", "#155724"]
+            ),
+            legend=None
+        ),
+        tooltip=[
+            alt.Tooltip('Disciplinas:N', title='Disciplina'),
+            alt.Tooltip('Progresso_Pct:Q', title='Progresso (%)', format='.1f'),
+            alt.Tooltip('Feito:Q', title='Concluído'),
+            alt.Tooltip('Pendente:Q', title='Pendente'),
+            alt.Tooltip('Total:Q', title='Total')
+        ]
+    ).properties(
+        title=alt.TitleParams(
+            text="Percentual de Progresso por Disciplina",
+            fontSize=16,
+            fontWeight='bold',
+            anchor='start',
+            color='#2c3e50'
+        ),
+        width=700,
+        height=max(300, len(df_progress_bar) * 40)
+    )
+    
+    # Adicionar texto com os valores nas barras
+    text_progress = alt.Chart(df_progress_bar).mark_text(
+        align='left',
+        dx=5,
+        fontSize=11,
+        fontWeight='bold',
+        color='white'
+    ).encode(
+        x=alt.X('Progresso_Pct:Q'),
+        y=alt.Y('Disciplinas:N', sort='-x'),
+        text=alt.Text('Progresso_Pct:Q', format='.1f')
+    )
+    
+    st.altair_chart(chart_progress + text_progress, use_container_width=True)
     st.markdown("""
     <div class="section-header">
         <h2>🍩 Progresso Individual por Disciplina</h2>
@@ -808,7 +905,7 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #7f8c8d; padding: 2rem;">
-        <p>📚 Dashboard de Disciplinas | Desenvolvido com ❤️ usando Streamlit e Plotly</p>
+        <p>📚 Dashboard de Disciplinas | Desenvolvido com ❤️ usando Streamlit e Altair</p>
         <p>🔄 Dados sincronizados automaticamente com Google Sheets</p>
     </div>
     """, unsafe_allow_html=True)
