@@ -97,238 +97,299 @@ def load_data():
             return pd.DataFrame()
     return pd.DataFrame()
 
-def create_donut_chart(data, title, color_scheme=None):
+def process_data_for_charts(df):
+    """Processar dados para os gráficos de rosca"""
+    if df.empty:
+        return {}
+    
+    # Agrupar por matéria e contar status
+    disciplinas_stats = {}
+    
+    for disciplina in df['Matéria'].unique():
+        disciplina_data = df[df['Matéria'] == disciplina]
+        
+        feito = len(disciplina_data[disciplina_data['STATUS'] == 'FEITO'])
+        pendente = len(disciplina_data[disciplina_data['STATUS'] == 'PENDENTE'])
+        total = feito + pendente
+        
+        if total > 0:
+            percentual_feito = (feito / total) * 100
+            
+            disciplinas_stats[disciplina] = {
+                'feito': feito,
+                'pendente': pendente,
+                'total': total,
+                'percentual_feito': percentual_feito
+            }
+    
+    return disciplinas_stats
+
+def create_donut_chart(feito, pendente, disciplina, color_scheme=None):
     """Criar gráfico de rosca com Altair"""
-    if data.empty:
-        return alt.Chart().mark_text(text="Sem dados", fontSize=16)
+    # Dados para o gráfico
+    data = pd.DataFrame([
+        {'categoria': 'Feito', 'valor': feito, 'disciplina': disciplina},
+        {'categoria': 'Pendente', 'valor': pendente, 'disciplina': disciplina}
+    ])
     
-    # Preparar dados para o gráfico de rosca
-    total = data['Peso'].sum()
-    data_chart = data.copy()
-    data_chart['percentage'] = (data_chart['Peso'] / total * 100).round(1)
-    data_chart['angle'] = data_chart['Peso'] / total * 360
+    # Cores padrão se não especificadas
+    if color_scheme is None:
+        color_scheme = [COLOR_POSITIVE, COLOR_NEGATIVE]
     
-    # Gráfico de rosca (donut chart)
-    base = alt.Chart(data_chart).add_selection(
+    # Gráfico de rosca
+    chart = alt.Chart(data).add_selection(
         alt.selection_single()
-    )
-    
-    # Arco externo
-    outer_arc = base.mark_arc(
+    ).mark_arc(
         innerRadius=50,
-        outerRadius=100,
+        outerRadius=80,
         stroke='white',
         strokeWidth=2
     ).encode(
-        theta=alt.Theta('Peso:Q'),
+        theta=alt.Theta('valor:Q'),
         color=alt.Color(
-            'Conteúdo:N',
-            scale=alt.Scale(range=color_scheme if color_scheme else DISCIPLINA_COLORS),
+            'categoria:N',
+            scale=alt.Scale(
+                domain=['Feito', 'Pendente'],
+                range=color_scheme
+            ),
             legend=alt.Legend(
-                orient='right',
+                orient='bottom',
                 titleFontSize=12,
-                labelFontSize=10,
-                symbolSize=100
+                labelFontSize=10
             )
         ),
         tooltip=[
-            alt.Tooltip('Conteúdo:N', title='Conteúdo'),
-            alt.Tooltip('Peso:Q', title='Peso'),
-            alt.Tooltip('percentage:Q', title='Percentual (%)', format='.1f')
+            alt.Tooltip('categoria:N', title='Status'),
+            alt.Tooltip('valor:Q', title='Quantidade'),
+            alt.Tooltip('disciplina:N', title='Disciplina')
         ]
-    )
-    
-    # Texto central com o total
-    text_center = alt.Chart(pd.DataFrame({'total': [total]})).mark_text(
-        align='center',
-        baseline='middle',
-        fontSize=20,
-        fontWeight='bold',
-        color='#333'
-    ).encode(
-        text=alt.Text('total:Q', format='.0f')
-    )
-    
-    # Título
-    title_chart = alt.Chart(pd.DataFrame({'title': [title]})).mark_text(
-        align='center',
-        baseline='top',
-        fontSize=16,
-        fontWeight='bold',
-        dy=-140,
-        color='#333'
-    ).encode(
-        text='title:N'
-    )
-    
-    return (outer_arc + text_center + title_chart).resolve_scale(
+    ).resolve_scale(
         color='independent'
     ).properties(
-        width=250,
-        height=250,
-        title=alt.TitleParams(text=title, fontSize=16, anchor='start')
+        width=200,
+        height=200,
+        title=alt.TitleParams(
+            text=disciplina,
+            fontSize=14,
+            fontWeight='bold',
+            anchor='start'
+        )
     )
+    
+    return chart
 
-def create_summary_chart(df):
-    """Criar gráfico resumo de todas as disciplinas"""
-    disciplinas_summary = df.groupby('Matéria')['Peso'].sum().reset_index()
-    disciplinas_summary = disciplinas_summary.sort_values('Peso', ascending=False)
+def create_summary_metrics(disciplinas_stats):
+    """Criar métricas resumo"""
+    if not disciplinas_stats:
+        return 0, 0, 0, 0.0
     
-    total_geral = disciplinas_summary['Peso'].sum()
-    disciplinas_summary['percentage'] = (disciplinas_summary['Peso'] / total_geral * 100).round(1)
+    total_feito = sum(stats['feito'] for stats in disciplinas_stats.values())
+    total_pendente = sum(stats['pendente'] for stats in disciplinas_stats.values())
+    total_geral = total_feito + total_pendente
+    percentual_geral = (total_feito / total_geral * 100) if total_geral > 0 else 0
     
-    # Gráfico de rosca resumo
-    base = alt.Chart(disciplinas_summary)
+    return total_feito, total_pendente, total_geral, percentual_geral
+
+def create_progress_bar_chart(disciplinas_stats):
+    """Criar gráfico de barras horizontais com progresso"""
+    if not disciplinas_stats:
+        return alt.Chart().mark_text(text='Nenhum dado disponível')
     
-    outer_arc = base.mark_arc(
-        innerRadius=60,
-        outerRadius=120,
-        stroke='white',
-        strokeWidth=3
+    # Preparar dados para o gráfico
+    data = []
+    for disciplina, stats in disciplinas_stats.items():
+        data.append({
+            'disciplina': disciplina,
+            'percentual': stats['percentual_feito'],
+            'feito': stats['feito'],
+            'total': stats['total']
+        })
+    
+    df_progress = pd.DataFrame(data)
+    df_progress = df_progress.sort_values('percentual', ascending=True)
+    
+    # Gráfico de barras horizontais
+    chart = alt.Chart(df_progress).mark_bar(
+        height=20,
+        cornerRadius=5
     ).encode(
-        theta=alt.Theta('Peso:Q'),
+        x=alt.X('percentual:Q', 
+                scale=alt.Scale(domain=[0, 100]),
+                axis=alt.Axis(title='Percentual Concluído (%)', format='.0f')),
+        y=alt.Y('disciplina:O', 
+                axis=alt.Axis(title=None, labelLimit=200)),
         color=alt.Color(
-            'Matéria:N',
-            scale=alt.Scale(range=DISCIPLINA_COLORS),
-            legend=alt.Legend(
-                orient='right',
-                titleFontSize=14,
-                labelFontSize=12,
-                symbolSize=150
-            )
+            'percentual:Q',
+            scale=alt.Scale(
+                range=['#ff4757', '#ffa502', '#2ed573'],
+                domain=[0, 50, 100]
+            ),
+            legend=None
         ),
         tooltip=[
-            alt.Tooltip('Matéria:N', title='Disciplina'),
-            alt.Tooltip('Peso:Q', title='Peso Total'),
-            alt.Tooltip('percentage:Q', title='Percentual (%)', format='.1f')
+            alt.Tooltip('disciplina:N', title='Disciplina'),
+            alt.Tooltip('feito:Q', title='Concluídos'),
+            alt.Tooltip('total:Q', title='Total'),
+            alt.Tooltip('percentual:Q', title='Percentual (%)', format='.1f')
         ]
-    )
-    
-    # Texto central
-    text_center = alt.Chart(pd.DataFrame({'total': [total_geral]})).mark_text(
-        align='center',
-        baseline='middle',
-        fontSize=24,
-        fontWeight='bold',
-        color='#333'
-    ).encode(
-        text=alt.Text('total:Q', format='.0f')
-    )
-    
-    return (outer_arc + text_center).resolve_scale(
-        color='independent'
     ).properties(
-        width=300,
+        width=500,
         height=300,
-        title=alt.TitleParams(text="Resumo Geral das Disciplinas", fontSize=18, anchor='start')
+        title=alt.TitleParams(
+            text='Progresso por Disciplina',
+            fontSize=16,
+            fontWeight='bold'
+        )
     )
+    
+    return chart
 
 def main():
     """Função principal do dashboard"""
-    st.title("📚 Dashboard de Evolução por Disciplinas")
+    
+    # Título principal
+    st.title("📚 Dashboard de Estudos - Concurso Público")
     st.markdown("---")
     
+    # Sidebar
+    with st.sidebar:
+        st.header("⚙️ Controles")
+        
+        # Botão para atualizar dados
+        if st.button("🔄 Atualizar Dados", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+        
+        # Informações
+        st.markdown("### 📊 Informações")
+        st.info("Dados atualizados automaticamente a cada 60 segundos")
+        
+        # Legenda de cores
+        st.markdown("### 🎨 Legenda")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"🟢 **Feito**")
+        with col2:
+            st.markdown(f"🔴 **Pendente**")
+    
     # Carregar dados
-    with st.spinner("Carregando dados da planilha..."):
+    with st.spinner("Carregando dados..."):
         df = load_data()
     
     if df.empty:
-        st.error("Não foi possível carregar os dados da planilha.")
-        st.info("Verifique se as credenciais do Google estão configuradas corretamente nos secrets do Streamlit.")
+        st.error("❌ Não foi possível carregar os dados. Verifique a conexão com o Google Sheets.")
         return
     
-    # Sidebar com informações
-    st.sidebar.header("📊 Informações Gerais")
-    total_disciplinas = df['Matéria'].nunique()
-    total_conteudos = len(df)
-    peso_total = df['Peso'].sum()
+    # Processar dados
+    disciplinas_stats = process_data_for_charts(df)
     
-    st.sidebar.metric("Total de Disciplinas", total_disciplinas)
-    st.sidebar.metric("Total de Conteúdos", total_conteudos)
-    st.sidebar.metric("Peso Total", peso_total)
-    
-    # Filtros
-    st.sidebar.header("🔍 Filtros")
-    disciplinas_disponiveis = sorted(df['Matéria'].unique())
-    disciplinas_selecionadas = st.sidebar.multiselect(
-        "Selecione as disciplinas:",
-        disciplinas_disponiveis,
-        default=disciplinas_disponiveis
-    )
-    
-    # Filtrar dados
-    df_filtrado = df[df['Matéria'].isin(disciplinas_selecionadas)]
-    
-    if df_filtrado.empty:
-        st.warning("Nenhuma disciplina selecionada ou dados disponíveis.")
+    if not disciplinas_stats:
+        st.warning("⚠️ Nenhum dado válido encontrado.")
         return
     
-    # Layout principal
+    # Métricas gerais
+    total_feito, total_pendente, total_geral, percentual_geral = create_summary_metrics(disciplinas_stats)
+    
+    # Container para métricas
+    st.header("📈 Resumo Geral")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            label="📋 Total de Itens",
+            value=f"{total_geral:,}",
+            help="Número total de tópicos de estudo"
+        )
+    
+    with col2:
+        st.metric(
+            label="✅ Concluídos",
+            value=f"{total_feito:,}",
+            delta=f"{percentual_geral:.1f}%",
+            help="Tópicos já estudados"
+        )
+    
+    with col3:
+        st.metric(
+            label="⏳ Pendentes",
+            value=f"{total_pendente:,}",
+            delta=f"{100-percentual_geral:.1f}%",
+            delta_color="inverse",
+            help="Tópicos ainda não estudados"
+        )
+    
+    with col4:
+        st.metric(
+            label="🎯 Progresso",
+            value=f"{percentual_geral:.1f}%",
+            help="Percentual geral de conclusão"
+        )
+    
+    st.markdown("---")
+    
+    # Gráfico de progresso geral
+    st.header("📊 Progresso por Disciplina")
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.header("📈 Gráficos de Rosca por Disciplina")
-        
-        # Criar gráficos para cada disciplina
-        disciplinas = df_filtrado['Matéria'].unique()
-        
-        # Organizar em grid de 2 colunas
-        for i in range(0, len(disciplinas), 2):
-            cols = st.columns(2)
-            
-            for j, col in enumerate(cols):
-                if i + j < len(disciplinas):
-                    disciplina = disciplinas[i + j]
-                    dados_disciplina = df_filtrado[df_filtrado['Matéria'] == disciplina]
-                    
-                    with col:
-                        # Criar cores específicas para cada conteúdo da disciplina
-                        num_conteudos = len(dados_disciplina)
-                        colors = DISCIPLINA_COLORS[:num_conteudos] if num_conteudos <= len(DISCIPLINA_COLORS) else DISCIPLINA_COLORS * (num_conteudos // len(DISCIPLINA_COLORS) + 1)
-                        
-                        chart = create_donut_chart(dados_disciplina, disciplina, colors[:num_conteudos])
-                        st.altair_chart(chart, use_container_width=True)
+        progress_chart = create_progress_bar_chart(disciplinas_stats)
+        st.altair_chart(progress_chart, use_container_width=True)
     
     with col2:
-        st.header("📊 Resumo Geral")
+        st.markdown("### 📋 Detalhes")
+        for disciplina, stats in disciplinas_stats.items():
+            with st.expander(f"**{disciplina}**"):
+                st.write(f"**Concluídos:** {stats['feito']}")
+                st.write(f"**Pendentes:** {stats['pendente']}")
+                st.write(f"**Total:** {stats['total']}")
+                st.write(f"**Progresso:** {stats['percentual_feito']:.1f}%")
+    
+    st.markdown("---")
+    
+    # Gráficos de rosca por disciplina
+    st.header("🍩 Gráficos de Rosca por Disciplina")
+    
+    # Organizar em colunas (máximo 3 por linha)
+    disciplinas = list(disciplinas_stats.keys())
+    
+    for i in range(0, len(disciplinas), 3):
+        cols = st.columns(3)
         
-        # Gráfico resumo
-        summary_chart = create_summary_chart(df_filtrado)
-        st.altair_chart(summary_chart, use_container_width=True)
-        
-        # Tabela de dados
-        st.subheader("📋 Dados Detalhados")
-        
-        # Preparar dados para exibição
-        df_display = df_filtrado.copy()
-        df_display = df_display.sort_values(['Matéria', 'Peso'], ascending=[True, False])
-        
-        # Mostrar tabela
-        st.dataframe(
-            df_display[['Matéria', 'Conteúdo', 'Peso']],
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        # Estatísticas por disciplina
-        st.subheader("📈 Estatísticas por Disciplina")
-        stats_disciplina = df_filtrado.groupby('Matéria').agg({
-            'Peso': ['sum', 'mean', 'count']
-        }).round(2)
-        
-        stats_disciplina.columns = ['Total', 'Média', 'Qtd Conteúdos']
-        stats_disciplina = stats_disciplina.sort_values('Total', ascending=False)
-        
-        st.dataframe(stats_disciplina, use_container_width=True)
+        for j, col in enumerate(cols):
+            if i + j < len(disciplinas):
+                disciplina = disciplinas[i + j]
+                stats = disciplinas_stats[disciplina]
+                
+                with col:
+                    # Criar gráfico de rosca
+                    donut_chart = create_donut_chart(
+                        stats['feito'], 
+                        stats['pendente'], 
+                        disciplina,
+                        [COLOR_POSITIVE, COLOR_NEGATIVE]
+                    )
+                    
+                    st.altair_chart(donut_chart, use_container_width=True)
+                    
+                    # Informações adicionais
+                    st.markdown(f"""
+                    <div style='text-align: center; padding: 10px; background-color: #f8f9fa; border-radius: 5px; margin-top: 10px;'>
+                        <strong>{stats['feito']}</strong> de <strong>{stats['total']}</strong> itens concluídos
+                        <br>
+                        <span style='color: #28a745; font-weight: bold;'>{stats['percentual_feito']:.1f}%</span> de progresso
+                    </div>
+                    """, unsafe_allow_html=True)
     
     # Rodapé
     st.markdown("---")
     st.markdown(
         """
-        <div style='text-align: center; color: #666; font-size: 12px;'>
-        Dashboard criado com Streamlit e Altair | Dados atualizados automaticamente
+        <div style='text-align: center; color: #6c757d; font-size: 0.9em;'>
+            💡 <strong>Dica:</strong> Use o botão "Atualizar Dados" na barra lateral para sincronizar com a planilha<br>
+            📊 Dashboard atualizado em: """ + datetime.now().strftime("%d/%m/%Y às %H:%M:%S") + """
         </div>
-        """,
+        """, 
         unsafe_allow_html=True
     )
 
