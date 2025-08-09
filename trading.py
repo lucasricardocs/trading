@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 # --- Configurações ---
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM'
-WORKSHEET_NAME = 'Página1'
+WORKSHEET_NAME = 'Data'
 CONCURSO_DATE = datetime(2024, 9, 28)  # Data do concurso
 
 # --- Funções de Autenticação ---
