@@ -18,8 +18,8 @@ except ImportError:
 # --- Configurações ---
 # ATENÇÃO: SUBSTITUA COM SEUS DADOS REAIS
 SPREADSHEET_ID = '16ttz6MqheB925H18CVH9UqlVMnzk9BYIIzl-4jb84aM' # ID da sua planilha
-WORKSHEET_NAME_PRINCIPAL = 'data' # Nome da aba do dashboard principal
-WORKSHEET_NAME_DADOS = 'dados' # Nome da aba da análise de conteúdo
+WORKSHEET_NAME_PRINCIPAL = 'Progresso' # Nome da aba do dashboard principal
+WORKSHEET_NAME_DADOS = 'Dados' # Nome da aba da análise de conteúdo
 CONCURSO_DATE = datetime(2025, 9, 28) # Data do concurso
 
 # Dados do edital
@@ -66,9 +66,6 @@ def read_data_from_sheets(worksheet_name):
         
         # Mapeamento para simular colunas da aba 'Dados'
         df_sample = pd.DataFrame(sample_data)
-        # O Streamlit já renomeia colunas para o usuário, mas aqui mapeamos para segurança
-        if worksheet_name == WORKSHEET_NAME_DADOS:
-            df_sample.columns = ['Matéria', 'Conteúdo', 'Status'] 
         return df_sample
 
     try:
@@ -77,6 +74,15 @@ def read_data_from_sheets(worksheet_name):
         worksheet = spreadsheet.worksheet(worksheet_name)
         records = worksheet.get_all_records()
         df = pd.DataFrame(records)
+
+        # Lógica de renomeação de colunas baseada no nome da aba
+        if worksheet_name == WORKSHEET_NAME_PRINCIPAL:
+            df = df.rename(columns={'Matéria.1': 'Matéria', 'Status.1': 'Status'})
+        elif worksheet_name == WORKSHEET_NAME_DADOS:
+            # Assumindo que as colunas B, C e E são as colunas 1, 2 e 4 (índice 0-based)
+            df = df.iloc[:, [1, 2, 4]].copy()
+            df.columns = ['Matéria', 'Conteúdo', 'Status']
+            
         return df
     except Exception as e:
         st.error(f"Erro ao ler dados da aba '{worksheet_name}'. Verifique o ID e o nome da aba. Erro: {e}")
@@ -86,8 +92,14 @@ def read_data_from_sheets(worksheet_name):
 def calculate_weighted_metrics(df_progresso):
     """Calcula métricas de progresso ponderado com base no edital."""
     df_edital = pd.DataFrame(ED_DATA)
-    df_progresso['Feito'] = df_progresso['Status'].apply(lambda x: 1 if x.strip().lower() == 'feito' else 0)
-    df_progresso['Pendente'] = df_progresso['Status'].apply(lambda x: 1 if x.strip().lower() == 'pendente' else 0)
+    
+    # Verifica se a coluna 'Status' existe antes de processar
+    if 'Status' not in df_progresso.columns:
+        st.error("Erro: A coluna 'Status' não foi encontrada na planilha. Verifique o cabeçalho.")
+        return pd.DataFrame(), 0.0
+
+    df_progresso['Feito'] = df_progresso['Status'].apply(lambda x: 1 if isinstance(x, str) and x.strip().lower() == 'feito' else 0)
+    df_progresso['Pendente'] = df_progresso['Status'].apply(lambda x: 1 if isinstance(x, str) and x.strip().lower() == 'pendente' else 0)
     
     df_progresso_summary = df_progresso.groupby('Matéria').agg(
         Conteudos_Feitos=('Feito', 'sum'),
@@ -241,8 +253,8 @@ with tab1:
         st.markdown("#### Métricas de Progresso")
         
         col1, col2, col3 = st.columns(3)
-        total_conteudos_feito = df_progresso['Feito'].sum()
-        total_conteudos_pendente = df_progresso['Pendente'].sum()
+        total_conteudos_feito = df_progresso[df_progresso['Status'] == 'Feito'].shape[0]
+        total_conteudos_pendente = df_progresso[df_progresso['Status'] == 'Pendente'].shape[0]
         
         with col1: st.metric(label="✅ Progresso Ponderado Geral", value=f"{progresso_ponderado_geral}%")
         with col2: st.metric(label="📚 Conteúdos Concluídos", value=f"{int(total_conteudos_feito)}")
@@ -257,7 +269,7 @@ with tab1:
 
         with st.container():
             st.markdown("#### Progresso por Disciplina (Ponderado)")
-            cols_charts = st.columns(df_final_filtered.shape[0])
+            cols_charts = st.columns(len(df_final_filtered))
             for idx, (_, row) in enumerate(df_final_filtered.iterrows()):
                 with cols_charts[idx % len(cols_charts)]:
                     chart = create_altair_donut_chart(row)
@@ -292,25 +304,23 @@ with tab2:
 
     if not df_dados.empty:
         try:
-            # Renomear colunas para B, C e E
-            df_dados_renamed = df_dados.iloc[:, [1, 2, 4]].copy()
-            df_dados_renamed.columns = ['Matéria', 'Conteúdo', 'Status']
-            df_dados_filtered = df_dados_renamed[['Matéria', 'Conteúdo', 'Status']]
-            
-            df_summary = df_dados_filtered.groupby('Matéria')['Status'].value_counts().unstack().fillna(0)
-            df_summary = df_summary.reset_index().rename_axis(None, axis=1)
+            # A renomeação foi movida para a função de leitura, mas mantemos a verificação aqui para segurança
+            if 'Matéria' in df_dados.columns and 'Conteúdo' in df_dados.columns and 'Status' in df_dados.columns:
+                df_dados_filtered = df_dados[['Matéria', 'Conteúdo', 'Status']]
+                
+                df_summary = df_dados_filtered.groupby('Matéria')['Status'].value_counts().unstack().fillna(0)
+                df_summary = df_summary.reset_index().rename_axis(None, axis=1)
 
-        except (KeyError, IndexError):
-            st.error("❌ A planilha 'Dados' não contém as colunas esperadas (B, C e E). Verifique a estrutura da sua planilha.")
-            df_summary = pd.DataFrame()
+                st.markdown("#### Progresso de Conteúdos por Matéria")
+                create_altair_bar_chart_conteudo_detalhado(df_summary)
 
-        if not df_summary.empty:
-            st.markdown("#### Progresso de Conteúdos por Matéria")
-            create_altair_bar_chart_conteudo_detalhado(df_summary)
-
-            with st.expander("🔍 Ver Tabela de Conteúdos Detalhada"):
-                st.markdown("Esta tabela lista todos os conteúdos do edital e o seu status.")
-                st.dataframe(df_dados_filtered, use_container_width=True, hide_index=True)
+                with st.expander("🔍 Ver Tabela de Conteúdos Detalhada"):
+                    st.markdown("Esta tabela lista todos os conteúdos do edital e o seu status.")
+                    st.dataframe(df_dados_filtered, use_container_width=True, hide_index=True)
+            else:
+                 st.error("❌ A planilha 'Dados' não contém as colunas esperadas ('Matéria', 'Conteúdo', 'Status') após a leitura. Verifique a estrutura da sua planilha.")
+        except Exception as e:
+            st.error(f"Ocorreu um erro ao processar os dados da aba 'Dados': {e}")
     else:
         st.error("❌ Não foi possível carregar os dados da aba 'Dados'. Verifique a conexão com o Google Sheets.")
 
